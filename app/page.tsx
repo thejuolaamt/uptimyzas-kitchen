@@ -1,27 +1,32 @@
-import { supabase } from '@/lib/supabase'
+'use client'
 
-export default async function Home() {
-  const { data: users, error } = await supabase
-    .from('users')
-    .select('email, first_name, surname, role')
-    .eq('email', 'admin@uptimyzaskitchen.com')
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { getSession } from '@/lib/auth'
 
-  if (error) {
-    console.error('Error:', error)
-    return <div>Database connection failed: {error.message}</div>
-  }
+export default function HomePage() {
+  const router = useRouter()
+
+  useEffect(() => {
+    const session = getSession()
+    if (session) {
+      if (session.role === 'admin') {
+        router.push('/admin')
+      } else {
+        router.push('/dashboard')
+      }
+    } else {
+      router.push('/auth/login')
+    }
+  }, [router])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
-      <div className="card max-w-md w-full">
-        <h1 className="font-display font-bold text-2xl text-primary mb-4">Uptimyzas Kitchen</h1>
-        <p className="text-text-secondary mb-4">Database connected successfully!</p>
-        {users && users.length > 0 && (
-          <div className="bg-primary-light p-4 rounded-default">
-            <p className="text-text-primary font-semibold">Admin found:</p>
-            <p>{users[0].email} - {users[0].role}</p>
-          </div>
-        )}
+    <div className="min-h-screen flex items-center justify-center bg-primary">
+      <div className="text-white text-center">
+        <h1 className="font-display font-bold text-5xl">UPTIMYZAS</h1>
+        <p className="font-display text-2xl mt-1">Kitchen</p>
+        <div className="mt-6 w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto"></div>
+        <p className="mt-4 text-white/80">Loading...</p>
       </div>
     </div>
   )
