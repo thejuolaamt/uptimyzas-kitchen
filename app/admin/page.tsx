@@ -66,7 +66,6 @@ export default function AdminOverview() {
     const today = new Date().toISOString().split('T')[0]
     const last7Days = getLast7Days()
 
-    // Get orders with id field
     const { data: orders } = await supabase
       .from('orders')
       .select('id, total, payment_method, created_at, items_json')
@@ -75,14 +74,12 @@ export default function AdminOverview() {
 
     const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
 
-    // Get expenses
     const { data: expenses } = await supabase
       .from('expenses')
       .select('amount')
 
     const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0
 
-    // Get staff stats
     const { data: staff } = await supabase
       .from('users')
       .select('status')
@@ -91,7 +88,6 @@ export default function AdminOverview() {
     const activeStaff = staff?.filter(s => s.status === 'active').length || 0
     const pendingApprovals = staff?.filter(s => s.status === 'pending').length || 0
 
-    // Get low stock items
     const { data: stock } = await supabase
       .from('shift_stock')
       .select('item_name, remaining_qty, opening_qty')
@@ -99,7 +95,6 @@ export default function AdminOverview() {
 
     const lowStockItems = stock?.filter(s => (s.remaining_qty / s.opening_qty) * 100 < 20).length || 0
 
-    // Check active shift
     const { data: activeShift } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
@@ -107,7 +102,6 @@ export default function AdminOverview() {
       .eq('status', 'open')
       .single()
 
-    // Revenue by day (last 7 days)
     const revenueByDay = last7Days.map(date => {
       const dayOrders = orders?.filter(o => o.created_at?.startsWith(date)) || []
       return {
@@ -116,7 +110,6 @@ export default function AdminOverview() {
       }
     })
 
-    // Revenue by payment method
     const cashRevenue = orders?.filter(o => o.payment_method === 'cash').reduce((sum, o) => sum + o.total, 0) || 0
     const transferRevenue = orders?.filter(o => o.payment_method === 'transfer').reduce((sum, o) => sum + o.total, 0) || 0
     const splitRevenue = orders?.filter(o => o.payment_method === 'split').reduce((sum, o) => sum + o.total, 0) || 0
@@ -127,7 +120,6 @@ export default function AdminOverview() {
       { name: 'Split', value: splitRevenue },
     ].filter(m => m.value > 0)
 
-    // Top selling items
     const itemSales: { [key: string]: number } = {}
     orders?.forEach(order => {
       if (order.items_json) {
@@ -141,7 +133,6 @@ export default function AdminOverview() {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5)
 
-    // Recent orders - now with id
     const recentOrders = orders?.slice(0, 5).map(o => ({
       id: o.id?.slice(-8) || 'unknown',
       total: o.total,
@@ -193,7 +184,6 @@ export default function AdminOverview() {
         <p className="text-text-secondary">Welcome back, {session?.first_name}</p>
       </div>
 
-      {/* Active Shift Alert */}
       {stats.activeShift && (
         <div className="bg-success/10 border border-success rounded-default p-4 mb-6 flex items-center justify-between">
           <div>
@@ -203,7 +193,6 @@ export default function AdminOverview() {
         </div>
       )}
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="card">
           <div className="flex items-center justify-between mb-2">
@@ -241,7 +230,6 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Second Row KPIs */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="card text-center">
           <Users size={20} className="mx-auto mb-1 text-text-secondary" />
@@ -260,9 +248,7 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Revenue Trend */}
         <div className="card">
           <h3 className="font-bold text-text-primary mb-4">Revenue Trend (Last 7 Days)</h3>
           <ResponsiveContainer width="100%" height={250}>
@@ -279,7 +265,6 @@ export default function AdminOverview() {
           </ResponsiveContainer>
         </div>
 
-        {/* Payment Methods */}
         <div className="card">
           <h3 className="font-bold text-text-primary mb-4">Revenue by Payment Method</h3>
           <ResponsiveContainer width="100%" height={250}>
@@ -289,7 +274,7 @@ export default function AdminOverview() {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -304,9 +289,7 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Top Selling Items & Recent Orders */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Selling Items */}
         <div className="card">
           <h3 className="font-bold text-text-primary mb-4">🏆 Top Selling Items</h3>
           <div className="space-y-3">
@@ -334,7 +317,6 @@ export default function AdminOverview() {
           </div>
         </div>
 
-        {/* Recent Orders */}
         <div className="card">
           <h3 className="font-bold text-text-primary mb-4">📋 Recent Orders</h3>
           <div className="space-y-2">
@@ -358,7 +340,6 @@ export default function AdminOverview() {
         </div>
       </div>
 
-      {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
         <button 
           onClick={() => router.push('/admin/staff')}
