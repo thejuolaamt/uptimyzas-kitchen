@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 import { ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react'
 
 type MenuItem = {
@@ -26,6 +27,7 @@ type CartItem = {
 
 export default function OrdersPage() {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
@@ -49,14 +51,11 @@ export default function OrdersPage() {
 
   const loadCartFromStorage = () => {
     const savedCart = localStorage.getItem('current_order_cart')
-    if (savedCart) {
-      setCart(JSON.parse(savedCart))
-    }
+    if (savedCart) setCart(JSON.parse(savedCart))
   }
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
-    
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
@@ -65,7 +64,7 @@ export default function OrdersPage() {
       .single()
 
     if (!data || error) {
-      alert('No active shift. Please open a shift first.')
+      toast('No active shift. Please open a shift first.', 'warning')
       router.push('/dashboard')
     } else {
       setActiveShift(data)
@@ -90,12 +89,10 @@ export default function OrdersPage() {
   const addToCart = (item: MenuItem) => {
     setCart(prevCart => {
       let newCart
-      const existing = prevCart.find(cartItem => cartItem.id === item.id)
+      const existing = prevCart.find(c => c.id === item.id)
       if (existing) {
-        newCart = prevCart.map(cartItem =>
-          cartItem.id === item.id
-            ? { ...cartItem, quantity: cartItem.quantity + 1 }
-            : cartItem
+        newCart = prevCart.map(c =>
+          c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c
         )
       } else {
         newCart = [...prevCart, { id: item.id, name: item.name, price: item.price, unit: item.unit, quantity: 1 }]
@@ -121,45 +118,51 @@ export default function OrdersPage() {
     })
   }
 
-  const getTotal = () => {
-    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  }
+  const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
   const filteredItems = selectedCategory === 'All'
     ? menuItems
     : menuItems.filter(item => item.category === selectedCategory)
 
-  if (loading) return <div className="p-6">Loading...</div>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-bg-subtle pb-20">
-      <div className="bg-primary text-white p-4 sticky top-0 z-10">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="font-bold text-lg">Take Order</h1>
-            <p className="text-sm opacity-90">{activeShift?.shifts?.name} Shift</p>
-          </div>
-          <button 
-            onClick={() => setShowCart(true)}
-            className="relative bg-white/20 p-2 rounded-full"
-          >
-            <ShoppingCart size={24} />
-            {cart.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-yellow-400 text-primary text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                {cart.reduce((sum, item) => sum + item.quantity, 0)}
-              </span>
-            )}
-          </button>
+    <div className="min-h-screen bg-bg-subtle pb-24">
+
+      {/* Header */}
+      <div className="bg-white border-b border-border px-4 py-3 flex justify-between items-center">
+        <div>
+          <p className="t-h3 text-text-primary">Take Order</p>
+          <p className="t-small text-text-secondary mt-0.5">{activeShift?.shifts?.name} Shift</p>
         </div>
+        <button
+          onClick={() => setShowCart(true)}
+          className="relative p-2 rounded-[10px] bg-bg-subtle min-h-0 min-w-0 w-10 h-10 flex items-center justify-center"
+        >
+          <ShoppingCart size={20} className="text-text-primary" />
+          {cartCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-primary text-white t-small rounded-full w-5 h-5 flex items-center justify-center">
+              {cartCount}
+            </span>
+          )}
+        </button>
       </div>
 
+      {/* Category filter */}
       <div className="bg-white border-b border-border overflow-x-auto">
-        <div className="flex whitespace-nowrap p-2 gap-2">
+        <div className="flex whitespace-nowrap px-4 py-2 gap-2">
           {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+              className={`px-4 py-1.5 rounded-full t-label transition-colors min-h-0 min-w-0 ${
                 selectedCategory === cat
                   ? 'bg-primary text-white'
                   : 'bg-bg-subtle text-text-secondary'
@@ -171,80 +174,97 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      {/* Menu grid */}
       <div className="p-4 grid grid-cols-2 gap-3">
         {filteredItems.map(item => (
           <button
             key={item.id}
             onClick={() => addToCart(item)}
-            className="card text-left hover:shadow-md transition-shadow"
+            className="card text-left active:scale-95 transition-transform"
           >
-            <h3 className="font-bold text-text-primary">{item.name}</h3>
-            <p className="text-text-secondary text-sm">{item.unit}</p>
-            <p className="text-primary font-bold mt-2">₦{item.price.toLocaleString()}</p>
+            <p className="t-h3 text-text-primary">{item.name}</p>
+            <p className="t-small text-text-muted mt-0.5">{item.unit}</p>
+            <p className="t-label text-primary mt-2">₦{item.price.toLocaleString()}</p>
           </button>
         ))}
       </div>
 
+      {/* Cart bottom sheet */}
       {showCart && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white w-full rounded-t-lg max-h-[80vh] overflow-y-auto">
-            <div className="p-4 border-b border-border sticky top-0 bg-white">
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end">
+          <div className="bg-white w-full rounded-t-[20px] max-h-[85vh] flex flex-col">
+
+            <div className="px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
               <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-text-primary">Your Order</h2>
-                <button onClick={() => setShowCart(false)} className="text-text-muted">✕</button>
+                <h2 className="t-h2 text-text-primary">Your Order</h2>
+                <button
+                  onClick={() => setShowCart(false)}
+                  className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center"
+                >
+                  ✕
+                </button>
               </div>
             </div>
-            
-            <div className="p-4 space-y-3">
+
+            <div className="overflow-y-auto flex-1 px-5 py-4">
               {cart.length === 0 ? (
-                <p className="text-text-muted text-center py-8">Cart is empty</p>
+                <div className="text-center py-10">
+                  <p className="t-body text-text-muted">Cart is empty</p>
+                  <p className="t-small text-text-muted mt-1">Add items from the menu</p>
+                </div>
               ) : (
-                <>
+                <div className="space-y-4">
                   {cart.map(item => (
                     <div key={item.id} className="flex justify-between items-center">
                       <div className="flex-1">
-                        <p className="font-semibold text-text-primary">{item.name}</p>
-                        <p className="text-text-secondary text-sm">₦{item.price} × {item.quantity}</p>
+                        <p className="t-body text-text-primary font-medium">{item.name}</p>
+                        <p className="t-small text-text-secondary">
+                          ₦{item.price.toLocaleString()} × {item.quantity} = ₦{(item.price * item.quantity).toLocaleString()}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => updateQuantity(item.id, -1)}
-                          className="w-8 h-8 bg-bg-subtle rounded-full flex items-center justify-center"
+                          className="w-8 h-8 min-h-0 min-w-0 bg-bg-subtle rounded-full flex items-center justify-center"
                         >
-                          <Minus size={16} />
+                          <Minus size={14} />
                         </button>
-                        <span className="font-mono w-8 text-center">{item.quantity}</span>
+                        <span className="font-mono t-body w-6 text-center">{item.quantity}</span>
                         <button
                           onClick={() => updateQuantity(item.id, 1)}
-                          className="w-8 h-8 bg-bg-subtle rounded-full flex items-center justify-center"
+                          className="w-8 h-8 min-h-0 min-w-0 bg-bg-subtle rounded-full flex items-center justify-center"
                         >
-                          <Plus size={16} />
+                          <Plus size={14} />
                         </button>
                         <button
                           onClick={() => updateQuantity(item.id, -item.quantity)}
-                          className="text-danger"
+                          className="text-danger min-h-0 min-w-0 w-8 h-8 flex items-center justify-center"
                         >
-                          <Trash2 size={18} />
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </div>
                   ))}
-                  
-                  <div className="border-t border-border pt-4 mt-4">
-                    <div className="flex justify-between text-lg font-bold">
-                      <span>Total</span>
-                      <span>₦{getTotal().toLocaleString()}</span>
-                    </div>
-                    <button 
-                      onClick={() => router.push('/dashboard/payment')}
-                      className="btn-primary w-full mt-4"
-                    >
-                      Proceed to Payment →
-                    </button>
-                  </div>
-                </>
+                </div>
               )}
             </div>
+
+            {cart.length > 0 && (
+              <div className="px-5 py-4 border-t border-border flex-shrink-0">
+                <div className="flex justify-between items-center mb-4">
+                  <p className="t-h3 text-text-primary">Total</p>
+                  <p className="t-h2 text-primary">₦{getTotal().toLocaleString()}</p>
+                </div>
+                <button
+                  onClick={() => router.push('/dashboard/payment')}
+                  className="btn-primary w-full"
+                >
+                  Proceed to Payment
+                </button>
+              </div>
+            )}
+
           </div>
         </div>
       )}

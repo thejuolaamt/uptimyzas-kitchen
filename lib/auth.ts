@@ -13,32 +13,20 @@ export type UserSession = {
 
 export async function signIn(email: string, password: string): Promise<{ success: boolean; error?: string; session?: UserSession }> {
   try {
-    console.log('Signing in with email:', email)
-    
-    // Find user by email
     const { data: users, error } = await supabase
       .from('users')
       .select('id, email, password_hash, first_name, surname, role, status')
       .eq('email', email.toLowerCase())
       .limit(1)
 
-    if (error) {
-      console.error('Supabase error:', error)
-      throw error
-    }
-    
-    console.log('User found:', users ? users.length : 0)
-    
+    if (error) throw error
+
     if (!users || users.length === 0) {
       return { success: false, error: 'Invalid email or password' }
     }
 
     const user = users[0]
-    console.log('User status:', user.status)
-    console.log('Stored hash:', user.password_hash)
-    console.log('Entered password:', password)
 
-    // Check status
     if (user.status === 'pending') {
       return { success: false, error: 'Your account is pending approval' }
     }
@@ -49,14 +37,12 @@ export async function signIn(email: string, password: string): Promise<{ success
       return { success: false, error: 'Account not active' }
     }
 
-    // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash)
-    console.log('Password valid:', isValidPassword)
-    
+
     if (!isValidPassword) {
       return { success: false, error: 'Invalid email or password' }
     }
-    
+
     const session: UserSession = {
       id: user.id,
       email: user.email,
@@ -66,14 +52,12 @@ export async function signIn(email: string, password: string): Promise<{ success
       status: user.status,
     }
 
-    // Save to localStorage
     if (typeof window !== 'undefined') {
       localStorage.setItem('uk_session', JSON.stringify(session))
     }
 
     return { success: true, session }
-  } catch (error) {
-    console.error('Sign in error:', error)
+  } catch {
     return { success: false, error: 'Something went wrong' }
   }
 }

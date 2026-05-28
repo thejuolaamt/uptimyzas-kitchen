@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 
 type CartItem = {
   id: string
@@ -15,6 +16,7 @@ type CartItem = {
 
 export default function PaymentPage() {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -46,7 +48,6 @@ export default function PaymentPage() {
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
-    
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
@@ -55,7 +56,7 @@ export default function PaymentPage() {
       .single()
 
     if (!data || error) {
-      alert('No active shift. Please open a shift first.')
+      toast('No active shift. Please open a shift first.', 'warning')
       router.push('/dashboard')
     } else {
       setActiveShift(data)
@@ -64,7 +65,6 @@ export default function PaymentPage() {
 
   const checkStockAvailability = async () => {
     const today = new Date().toISOString().split('T')[0]
-    
     for (const item of cart) {
       const { data: stockData, error } = await supabase
         .from('shift_stock')
@@ -75,32 +75,26 @@ export default function PaymentPage() {
         .single()
 
       if (error || !stockData) {
-        alert(`Error checking stock for ${item.name}`)
+        toast(`Error checking stock for ${item.name}`, 'error')
         return false
       }
-
       if (stockData.remaining_qty < item.quantity) {
-        alert(`${item.name}: Only ${stockData.remaining_qty} ${item.unit}(s) available. You ordered ${item.quantity}.`)
+        toast(`${item.name}: Only ${stockData.remaining_qty} ${item.unit}(s) available. You ordered ${item.quantity}.`, 'warning')
         return false
       }
     }
     return true
   }
 
-  const getTotal = () => {
-    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  }
-
+  const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const getChange = () => {
     const received = parseFloat(amountReceived)
-    const total = getTotal()
-    if (isNaN(received)) return 0
-    return received - total
+    return isNaN(received) ? 0 : received - getTotal()
   }
 
   const handleConfirmOrder = async () => {
     if (!activeShift) {
-      alert('No active shift found')
+      toast('No active shift found', 'error')
       router.push('/dashboard')
       return
     }
@@ -111,7 +105,7 @@ export default function PaymentPage() {
     setLoading(true)
     const total = getTotal()
     const today = new Date().toISOString().split('T')[0]
-    
+
     let cashAmt = 0
     let transferAmt = 0
     let changeGiven = 0
@@ -119,7 +113,7 @@ export default function PaymentPage() {
     if (paymentMethod === 'cash') {
       const received = parseFloat(amountReceived)
       if (received < total) {
-        alert('Insufficient amount received')
+        toast('Insufficient amount received', 'warning')
         setLoading(false)
         return
       }
@@ -131,7 +125,7 @@ export default function PaymentPage() {
       cashAmt = parseFloat(cashAmount) || 0
       transferAmt = parseFloat(transferAmount) || 0
       if (cashAmt + transferAmt !== total) {
-        alert('Cash + Transfer must equal total amount')
+        toast('Cash + Transfer must equal total amount', 'warning')
         setLoading(false)
         return
       }
@@ -163,12 +157,11 @@ export default function PaymentPage() {
       .single()
 
     if (orderError) {
-      alert('Error saving order: ' + orderError.message)
+      toast('Error saving order: ' + orderError.message, 'error')
       setLoading(false)
       return
     }
 
-    // Log order activity
     await supabase.from('shift_activities').insert({
       shift_date: today,
       shift_id: activeShift.shift_id,
@@ -178,11 +171,11 @@ export default function PaymentPage() {
       action_type: 'TAKE_ORDER',
       action_details: {
         order_id: orderData.id,
-        total: total,
+        total,
         items: cart.length,
         payment_method: paymentMethod
       }
-    });
+    })
 
     for (const item of cart) {
       const { data: stockData } = await supabase
@@ -210,74 +203,73 @@ export default function PaymentPage() {
     localStorage.setItem('last_order', JSON.stringify({
       orderId: orderData.id,
       items: cart,
-      total: total,
-      paymentMethod: paymentMethod,
-      changeGiven: changeGiven,
+      total,
+      paymentMethod,
+      changeGiven,
       cashAmount: cashAmt,
       transferAmount: transferAmt
     }))
-    
+
     router.push('/dashboard/receipt')
     setLoading(false)
   }
 
   const total = getTotal()
+  const splitTotal = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
 
   if (!activeShift) {
-    return <div className="p-6">Loading shift information...</div>
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4">
-        <h1 className="text-xl font-bold text-text-primary mb-4">Payment</h1>
-        
-        <div className="card mb-4">
-          <h2 className="font-bold text-text-primary mb-2">Order Summary</h2>
-          {cart.map(item => (
-            <div key={item.id} className="flex justify-between text-sm py-1">
-              <span>{item.quantity}× {item.name}</span>
-              <span>₦{(item.price * item.quantity).toLocaleString()}</span>
-            </div>
-          ))}
-          <div className="border-t border-border mt-2 pt-2 flex justify-between font-bold">
-            <span>Total</span>
-            <span>₦{total.toLocaleString()}</span>
+      <div className="p-4 pb-24 space-y-4">
+
+        <h1 className="t-h1 text-text-primary">Payment</h1>
+
+        {/* Order summary */}
+        <div className="card">
+          <p className="t-h3 text-text-primary mb-3">Order Summary</p>
+          <div className="space-y-2">
+            {cart.map(item => (
+              <div key={item.id} className="flex justify-between">
+                <p className="t-body text-text-secondary">{item.quantity}× {item.name}</p>
+                <p className="t-body text-text-primary">₦{(item.price * item.quantity).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border mt-3 pt-3 flex justify-between">
+            <p className="t-h3 text-text-primary">Total</p>
+            <p className="t-h2 text-primary">₦{total.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="card mb-4">
-          <h2 className="font-bold text-text-primary mb-3">Payment Method</h2>
-          <div className="flex gap-3 mb-4">
-            <button
-              onClick={() => setPaymentMethod('cash')}
-              className={`flex-1 py-2 rounded-default font-semibold ${
-                paymentMethod === 'cash' ? 'bg-primary text-white' : 'bg-bg-subtle text-text-secondary'
-              }`}
-            >
-              Cash
-            </button>
-            <button
-              onClick={() => setPaymentMethod('transfer')}
-              className={`flex-1 py-2 rounded-default font-semibold ${
-                paymentMethod === 'transfer' ? 'bg-primary text-white' : 'bg-bg-subtle text-text-secondary'
-              }`}
-            >
-              Transfer
-            </button>
-            <button
-              onClick={() => setPaymentMethod('split')}
-              className={`flex-1 py-2 rounded-default font-semibold ${
-                paymentMethod === 'split' ? 'bg-primary text-white' : 'bg-bg-subtle text-text-secondary'
-              }`}
-            >
-              Split
-            </button>
+        {/* Payment method */}
+        <div className="card">
+          <p className="t-h3 text-text-primary mb-3">Payment Method</p>
+          <div className="flex gap-2 mb-4">
+            {(['cash', 'transfer', 'split'] as const).map(method => (
+              <button
+                key={method}
+                onClick={() => setPaymentMethod(method)}
+                className={`flex-1 py-2 rounded-[10px] t-label capitalize transition-colors ${
+                  paymentMethod === method
+                    ? 'bg-primary text-white'
+                    : 'bg-bg-subtle text-text-secondary'
+                }`}
+              >
+                {method}
+              </button>
+            ))}
           </div>
 
           {paymentMethod === 'cash' && (
             <div>
-              <label className="block text-text-primary font-medium mb-1">Amount Received</label>
+              <label className="block t-label text-text-primary mb-1">Amount Received</label>
               <input
                 type="number"
                 value={amountReceived}
@@ -286,10 +278,14 @@ export default function PaymentPage() {
                 placeholder="Enter amount"
               />
               {amountReceived && parseFloat(amountReceived) >= total && (
-                <p className="text-success mt-2">Change: ₦{getChange().toLocaleString()}</p>
+                <p className="t-body text-[#2E7D32] mt-2">
+                  Change: ₦{getChange().toLocaleString()}
+                </p>
               )}
               {amountReceived && parseFloat(amountReceived) < total && (
-                <p className="text-danger mt-2">Insufficient: ₦{Math.abs(getChange()).toLocaleString()} short</p>
+                <p className="t-body text-danger mt-2">
+                  Short by ₦{Math.abs(getChange()).toLocaleString()}
+                </p>
               )}
             </div>
           )}
@@ -297,7 +293,7 @@ export default function PaymentPage() {
           {paymentMethod === 'split' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-text-primary font-medium mb-1">Cash Amount</label>
+                <label className="block t-label text-text-primary mb-1">Cash Amount</label>
                 <input
                   type="number"
                   value={cashAmount}
@@ -307,7 +303,7 @@ export default function PaymentPage() {
                 />
               </div>
               <div>
-                <label className="block text-text-primary font-medium mb-1">Transfer Amount</label>
+                <label className="block t-label text-text-primary mb-1">Transfer Amount</label>
                 <input
                   type="number"
                   value={transferAmount}
@@ -316,8 +312,13 @@ export default function PaymentPage() {
                   placeholder="Enter transfer amount"
                 />
               </div>
-              {(parseFloat(cashAmount) + parseFloat(transferAmount)) !== total && (
-                <p className="text-danger text-sm">Total must equal ₦{total.toLocaleString()}</p>
+              {splitTotal > 0 && splitTotal !== total && (
+                <p className="t-small text-danger">
+                  Total must equal ₦{total.toLocaleString()} · Currently ₦{splitTotal.toLocaleString()}
+                </p>
+              )}
+              {splitTotal === total && (
+                <p className="t-small text-[#2E7D32]">✓ Amounts match</p>
               )}
             </div>
           )}
@@ -330,6 +331,7 @@ export default function PaymentPage() {
         >
           {loading ? 'Processing...' : 'Confirm Order'}
         </button>
+
       </div>
     </div>
   )

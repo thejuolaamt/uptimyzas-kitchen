@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import bcrypt from 'bcryptjs'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -25,7 +26,7 @@ export default function SignupPage() {
     address: '',
   })
 
-  const updateField = (field: string, value: any) => {
+  const updateField = (field: string, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
@@ -49,7 +50,6 @@ export default function SignupPage() {
     setError('')
 
     try {
-      // Check if this is the first user
       const { count, error: countError } = await supabase
         .from('users')
         .select('*', { count: 'exact', head: true })
@@ -64,13 +64,15 @@ export default function SignupPage() {
       const userRole = isFirstUser ? 'admin' : 'staff'
       const userStatus = isFirstUser ? 'active' : 'pending'
 
-      // For now, store plain password (we'll hash in the backend later)
-      // In production, you'd use a Supabase function to hash
+      // Hash the password before storing
+      const saltRounds = 10
+      const passwordHash = await bcrypt.hash(formData.password, saltRounds)
+
       const { data, error: insertError } = await supabase
         .from('users')
         .insert({
           email: formData.email.toLowerCase(),
-          password_hash: formData.password, // TEMP: will be hashed, just for testing
+          password_hash: passwordHash,
           first_name: formData.firstName,
           surname: formData.surname,
           phone: formData.phone,
@@ -96,7 +98,6 @@ export default function SignupPage() {
       }
 
       if (isFirstUser && data && data[0]) {
-        // Auto login for first user
         const session = {
           id: data[0].id,
           email: data[0].email,
@@ -110,9 +111,8 @@ export default function SignupPage() {
       } else {
         router.push('/auth/pending')
       }
-    } catch (err: any) {
-      console.error('Signup error:', err)
-      setError(err?.message || 'Something went wrong. Please try again.')
+    } catch {
+      setError('Something went wrong. Please try again.')
     }
     setLoading(false)
   }
@@ -121,8 +121,9 @@ export default function SignupPage() {
     <div className="min-h-screen flex items-center justify-center bg-bg-subtle py-8">
       <div className="card max-w-md w-full mx-4">
         <div className="text-center mb-6">
-          <h1 className="font-display font-bold text-3xl text-primary">Uptimyzas</h1>
-          <p className="text-text-secondary mt-2">Create your account</p>
+          <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
+          <p className="t-small mt-1 tracking-widest uppercase text-text-muted">Restaurant Management System</p>
+          <p className="t-body text-text-secondary mt-3">Create your account</p>
           <div className="flex justify-center gap-2 mt-4">
             <div className={`w-2 h-2 rounded-full ${step === 1 ? 'bg-primary' : 'bg-border'}`} />
             <div className={`w-2 h-2 rounded-full ${step === 2 ? 'bg-primary' : 'bg-border'}`} />
@@ -130,15 +131,15 @@ export default function SignupPage() {
         </div>
 
         {error && (
-          <div className="bg-danger/10 border border-danger rounded-default p-3 mb-4">
-            <p className="text-danger text-sm">{error}</p>
+          <div className="bg-danger/10 border border-danger rounded-[10px] p-3 mb-4">
+            <p className="text-danger t-small">{error}</p>
           </div>
         )}
 
         {step === 1 && (
           <form onSubmit={handleStep1Submit} className="space-y-4">
             <div>
-              <label className="block text-text-primary font-medium mb-1">First Name *</label>
+              <label className="block text-text-primary t-label mb-1">First Name *</label>
               <input
                 type="text"
                 value={formData.firstName}
@@ -149,7 +150,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Surname *</label>
+              <label className="block text-text-primary t-label mb-1">Surname *</label>
               <input
                 type="text"
                 value={formData.surname}
@@ -160,7 +161,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Email *</label>
+              <label className="block text-text-primary t-label mb-1">Email *</label>
               <input
                 type="email"
                 value={formData.email}
@@ -171,7 +172,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Phone *</label>
+              <label className="block text-text-primary t-label mb-1">Phone *</label>
               <input
                 type="tel"
                 value={formData.phone}
@@ -182,7 +183,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Additional Phone</label>
+              <label className="block text-text-primary t-label mb-1">Additional Phone</label>
               <input
                 type="tel"
                 value={formData.additionalPhone}
@@ -199,11 +200,11 @@ export default function SignupPage() {
                 onChange={(e) => updateField('isStudent', e.target.checked)}
                 className="w-4 h-4"
               />
-              <label htmlFor="isStudent" className="text-text-primary">Are you a student?</label>
+              <label htmlFor="isStudent" className="t-body text-text-primary">Are you a student?</label>
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Password *</label>
+              <label className="block text-text-primary t-label mb-1">Password *</label>
               <input
                 type="password"
                 value={formData.password}
@@ -214,7 +215,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Confirm Password *</label>
+              <label className="block text-text-primary t-label mb-1">Confirm Password *</label>
               <input
                 type="password"
                 value={formData.confirmPassword}
@@ -233,7 +234,7 @@ export default function SignupPage() {
         {step === 2 && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-text-primary font-medium mb-1">State</label>
+              <label className="block text-text-primary t-label mb-1">State</label>
               <input
                 type="text"
                 value={formData.state}
@@ -243,7 +244,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">City</label>
+              <label className="block text-text-primary t-label mb-1">City</label>
               <input
                 type="text"
                 value={formData.city}
@@ -253,7 +254,7 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-text-primary font-medium mb-1">Address</label>
+              <label className="block text-text-primary t-label mb-1">Address</label>
               <textarea
                 value={formData.address}
                 onChange={(e) => updateField('address', e.target.value)}
@@ -275,7 +276,7 @@ export default function SignupPage() {
           </form>
         )}
 
-        <p className="text-center text-text-secondary text-sm mt-6">
+        <p className="t-small text-center text-text-secondary mt-6">
           Already have an account?{' '}
           <button onClick={() => router.push('/auth/login')} className="text-primary font-semibold">
             Sign in

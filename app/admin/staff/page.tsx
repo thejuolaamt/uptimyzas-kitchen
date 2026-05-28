@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 import { Check, X, Eye, UserCheck, UserX, Users } from 'lucide-react'
 
 type StaffMember = {
@@ -26,10 +27,12 @@ type StaffMember = {
 
 export default function StaffManagement() {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
+  const [archiveConfirm, setArchiveConfirm] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'pending' | 'active' | 'declined'>('pending')
 
   useEffect(() => {
@@ -46,32 +49,25 @@ export default function StaffManagement() {
 
   const fetchStaff = async () => {
     setLoading(true)
-    
-    let query = supabase
+    const { data, error } = await supabase
       .from('users')
       .select('*')
       .order('created_at', { ascending: false })
 
-    const { data, error } = await query
-
-    if (!error && data) {
-      setStaff(data)
-    }
+    if (!error && data) setStaff(data)
     setLoading(false)
   }
 
   const approveStaff = async (staffId: string) => {
     const { error } = await supabase
       .from('users')
-      .update({
-        status: 'active',
-        approved_at: new Date().toISOString()
-      })
+      .update({ status: 'active', approved_at: new Date().toISOString() })
       .eq('id', staffId)
 
     if (error) {
-      alert('Error approving staff: ' + error.message)
+      toast('Error approving staff: ' + error.message, 'error')
     } else {
+      toast('Staff approved successfully', 'success')
       fetchStaff()
       setSelectedStaff(null)
     }
@@ -80,15 +76,13 @@ export default function StaffManagement() {
   const declineStaff = async (staffId: string) => {
     const { error } = await supabase
       .from('users')
-      .update({
-        status: 'declined',
-        declined_at: new Date().toISOString()
-      })
+      .update({ status: 'declined', declined_at: new Date().toISOString() })
       .eq('id', staffId)
 
     if (error) {
-      alert('Error declining staff: ' + error.message)
+      toast('Error declining staff: ' + error.message, 'error')
     } else {
+      toast('Staff declined', 'info')
       fetchStaff()
       setSelectedStaff(null)
     }
@@ -102,161 +96,158 @@ export default function StaffManagement() {
       .eq('id', staffId)
 
     if (error) {
-      alert('Error updating role: ' + error.message)
+      toast('Error updating role: ' + error.message, 'error')
     } else {
+      toast(`Role updated to ${newRole}`, 'success')
       fetchStaff()
     }
   }
 
   const archiveStaff = async (staffId: string) => {
-    if (confirm('Archive this staff member? They will no longer be able to access the system.')) {
-      const { error } = await supabase
-        .from('users')
-        .update({ status: 'archived' })
-        .eq('id', staffId)
+    const { error } = await supabase
+      .from('users')
+      .update({ status: 'archived' })
+      .eq('id', staffId)
 
-      if (error) {
-        alert('Error archiving staff: ' + error.message)
-      } else {
-        fetchStaff()
-      }
+    if (error) {
+      toast('Error archiving staff: ' + error.message, 'error')
+    } else {
+      toast('Staff archived', 'info')
+      fetchStaff()
     }
+    setArchiveConfirm(null)
   }
 
-  const getFilteredStaff = () => {
-    if (filter === 'all') return staff
-    return staff.filter(member => member.status === filter)
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <span className="bg-warning/10 text-warning px-2 py-1 rounded-full text-xs font-semibold">Pending</span>
-      case 'active':
-        return <span className="bg-success/10 text-success px-2 py-1 rounded-full text-xs font-semibold">Active</span>
-      case 'declined':
-        return <span className="bg-danger/10 text-danger px-2 py-1 rounded-full text-xs font-semibold">Declined</span>
-      case 'archived':
-        return <span className="bg-text-muted/10 text-text-muted px-2 py-1 rounded-full text-xs font-semibold">Archived</span>
-      default:
-        return <span className="bg-border px-2 py-1 rounded-full text-xs">{status}</span>
-    }
-  }
+  const getFilteredStaff = () =>
+    filter === 'all' ? staff : staff.filter(m => m.status === filter)
 
   const getPendingCount = () => staff.filter(m => m.status === 'pending').length
 
-  if (loading) return <div className="p-6">Loading...</div>
+  const getStatusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      pending:  'bg-[#E65100]/10 text-[#E65100]',
+      active:   'bg-[#2E7D32]/10 text-[#2E7D32]',
+      declined: 'bg-danger/10 text-danger',
+      archived: 'bg-border text-text-muted',
+    }
+    return (
+      <span className={`${map[status] || 'bg-border'} px-2 py-1 rounded-full t-small font-medium capitalize`}>
+        {status}
+      </span>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-bg-subtle">
       <div className="p-6">
+
+        {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-text-primary">Staff Management</h1>
+          <h1 className="t-h1 text-text-primary">Staff Management</h1>
           {getPendingCount() > 0 && (
-            <div className="bg-primary text-white px-3 py-1 rounded-full text-sm font-semibold">
+            <span className="bg-primary text-white px-3 py-1 rounded-full t-small font-medium">
               {getPendingCount()} Pending
-            </div>
+            </span>
           )}
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-border">
+        {/* Filter tabs */}
+        <div className="flex gap-1 mb-6 border-b border-border">
           {(['all', 'pending', 'active', 'declined'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setFilter(tab)}
-              className={`px-4 py-2 font-semibold capitalize transition-colors ${
+              className={`px-4 py-2 t-label capitalize transition-colors ${
                 filter === tab
                   ? 'text-primary border-b-2 border-primary'
-                  : 'text-text-secondary hover:text-text-primary'
+                  : 'text-text-secondary'
               }`}
             >
-              {tab} {tab === 'pending' && getPendingCount() > 0 && `(${getPendingCount()})`}
+              {tab}{tab === 'pending' && getPendingCount() > 0 ? ` (${getPendingCount()})` : ''}
             </button>
           ))}
         </div>
 
-        {/* Staff List */}
+        {/* Staff list */}
         <div className="space-y-3">
           {getFilteredStaff().length === 0 ? (
-            <div className="card text-center py-8">
-              <Users size={48} className="mx-auto text-text-muted mb-2" />
-              <p className="text-text-muted">No staff members found</p>
+            <div className="card text-center py-10">
+              <Users size={32} className="mx-auto text-text-muted mb-2" />
+              <p className="t-body text-text-muted">No staff members found</p>
             </div>
           ) : (
             getFilteredStaff().map((member) => (
               <div key={member.id} className="card">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-text-primary">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <p className="t-body text-text-primary font-medium">
                         {member.first_name} {member.surname}
-                      </h3>
+                      </p>
                       {getStatusBadge(member.status)}
                       {member.role === 'admin' && (
-                        <span className="bg-primary/10 text-primary px-2 py-1 rounded-full text-xs font-semibold">Admin</span>
+                        <span className="bg-primary/10 text-primary px-2 py-1 rounded-full t-small">Admin</span>
                       )}
                     </div>
-                    <p className="text-text-secondary text-sm mt-1">{member.email}</p>
-                    <p className="text-text-secondary text-sm">{member.phone}</p>
-                    {member.is_student && (
-                      <p className="text-xs text-info mt-1">Student</p>
-                    )}
-                    <p className="text-text-muted text-xs mt-2">
-                      Joined: {new Date(member.created_at).toLocaleDateString()}
+                    <p className="t-small text-text-secondary">{member.email}</p>
+                    <p className="t-small text-text-secondary">{member.phone}</p>
+                    <p className="t-small text-text-muted mt-1">
+                      Joined {new Date(member.created_at).toLocaleDateString('en-NG')}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-shrink-0">
                     <button
                       onClick={() => setSelectedStaff(member)}
-                      className="btn-secondary p-2"
-                      title="View Details"
+                      className="btn-secondary p-2 min-h-0 min-w-0 w-9 h-9"
                     >
-                      <Eye size={18} />
+                      <Eye size={16} />
                     </button>
                     {member.status === 'pending' && (
                       <>
                         <button
                           onClick={() => approveStaff(member.id)}
-                          className="bg-success/10 text-success p-2 rounded-default hover:bg-success/20"
-                          title="Approve"
+                          className="bg-[#2E7D32]/10 text-[#2E7D32] p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
                         >
-                          <Check size={18} />
+                          <Check size={16} />
                         </button>
                         <button
                           onClick={() => declineStaff(member.id)}
-                          className="bg-danger/10 text-danger p-2 rounded-default hover:bg-danger/20"
-                          title="Decline"
+                          className="bg-danger/10 text-danger p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
                         >
-                          <X size={18} />
+                          <X size={16} />
                         </button>
                       </>
                     )}
                     {member.status === 'active' && member.role !== 'admin' && (
                       <button
                         onClick={() => promoteToAdmin(member.id, member.role)}
-                        className="bg-info/10 text-info p-2 rounded-default hover:bg-info/20"
-                        title="Promote to Admin"
+                        className="bg-[#1565C0]/10 text-[#1565C0] p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
                       >
-                        <UserCheck size={18} />
+                        <UserCheck size={16} />
                       </button>
                     )}
                     {member.status === 'active' && member.role === 'admin' && session?.id !== member.id && (
                       <button
                         onClick={() => promoteToAdmin(member.id, member.role)}
-                        className="bg-warning/10 text-warning p-2 rounded-default hover:bg-warning/20"
-                        title="Demote to Staff"
+                        className="bg-[#E65100]/10 text-[#E65100] p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
                       >
-                        <UserX size={18} />
+                        <UserX size={16} />
                       </button>
                     )}
                     {member.status === 'active' && (
                       <button
-                        onClick={() => archiveStaff(member.id)}
-                        className="bg-text-muted/10 text-text-muted p-2 rounded-default hover:bg-text-muted/20"
-                        title="Archive"
+                        onClick={() => setArchiveConfirm(member.id)}
+                        className="bg-border text-text-muted p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
                       >
-                        <Users size={18} />
+                        <Users size={16} />
                       </button>
                     )}
                   </div>
@@ -267,108 +258,65 @@ export default function StaffManagement() {
         </div>
       </div>
 
-      {/* Staff Details Modal */}
+      {/* Staff details modal */}
       {selectedStaff && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedStaff(null)}>
-          <div className="card w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-text-primary">Staff Details</h2>
-              <button onClick={() => setSelectedStaff(null)} className="text-text-muted">✕</button>
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-t-[20px] max-h-[85vh] flex flex-col">
+            <div className="px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
+              <div className="flex justify-between items-center">
+                <p className="t-h2 text-text-primary">Staff Details</p>
+                <button onClick={() => setSelectedStaff(null)} className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center">✕</button>
+              </div>
             </div>
-
-            <div className="space-y-4">
-              <div>
-                <p className="text-text-secondary text-sm">Full Name</p>
-                <p className="font-semibold">{selectedStaff.first_name} {selectedStaff.surname}</p>
-              </div>
-
-              <div>
-                <p className="text-text-secondary text-sm">Email</p>
-                <p>{selectedStaff.email}</p>
-              </div>
-
-              <div>
-                <p className="text-text-secondary text-sm">Phone</p>
-                <p>{selectedStaff.phone}</p>
-              </div>
-
-              {selectedStaff.additional_phone && (
-                <div>
-                  <p className="text-text-secondary text-sm">Additional Phone</p>
-                  <p>{selectedStaff.additional_phone}</p>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+              {[
+                ['Full Name', `${selectedStaff.first_name} ${selectedStaff.surname}`],
+                ['Email', selectedStaff.email],
+                ['Phone', selectedStaff.phone],
+                selectedStaff.additional_phone ? ['Additional Phone', selectedStaff.additional_phone] : null,
+                ['Role', selectedStaff.role],
+                ['Student', selectedStaff.is_student ? 'Yes' : 'No'],
+                selectedStaff.state ? ['State', selectedStaff.state] : null,
+                selectedStaff.city ? ['City', selectedStaff.city] : null,
+                selectedStaff.address ? ['Address', selectedStaff.address] : null,
+                ['Joined', new Date(selectedStaff.created_at).toLocaleString('en-NG')],
+                selectedStaff.approved_at ? ['Approved At', new Date(selectedStaff.approved_at).toLocaleString('en-NG')] : null,
+                selectedStaff.declined_at ? ['Declined At', new Date(selectedStaff.declined_at).toLocaleString('en-NG')] : null,
+              ].filter(Boolean).map(([label, value]: any) => (
+                <div key={label}>
+                  <p className="t-small text-text-muted">{label}</p>
+                  <p className="t-body text-text-primary">{value}</p>
                 </div>
-              )}
-
-              <div>
-                <p className="text-text-secondary text-sm">Role</p>
-                <p className="capitalize">{selectedStaff.role}</p>
-              </div>
-
-              <div>
-                <p className="text-text-secondary text-sm">Status</p>
+              ))}
+              <div className="pt-1">
+                <p className="t-small text-text-muted mb-1">Status</p>
                 {getStatusBadge(selectedStaff.status)}
               </div>
-
-              <div>
-                <p className="text-text-secondary text-sm">Student</p>
-                <p>{selectedStaff.is_student ? 'Yes' : 'No'}</p>
-              </div>
-
-              {selectedStaff.state && (
-                <div>
-                  <p className="text-text-secondary text-sm">State</p>
-                  <p>{selectedStaff.state}</p>
-                </div>
+            </div>
+            <div className="px-5 py-4 border-t border-border flex gap-3 flex-shrink-0">
+              {selectedStaff.status === 'pending' && (
+                <>
+                  <button onClick={() => approveStaff(selectedStaff.id)} className="btn-primary flex-1">Approve</button>
+                  <button onClick={() => declineStaff(selectedStaff.id)} className="btn-secondary flex-1">Decline</button>
+                </>
               )}
+              <button onClick={() => setSelectedStaff(null)} className="btn-secondary flex-1">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-              {selectedStaff.city && (
-                <div>
-                  <p className="text-text-secondary text-sm">City</p>
-                  <p>{selectedStaff.city}</p>
-                </div>
-              )}
-
-              {selectedStaff.address && (
-                <div>
-                  <p className="text-text-secondary text-sm">Address</p>
-                  <p>{selectedStaff.address}</p>
-                </div>
-              )}
-
-              <div>
-                <p className="text-text-secondary text-sm">Joined</p>
-                <p>{new Date(selectedStaff.created_at).toLocaleString()}</p>
-              </div>
-
-              {selectedStaff.approved_at && (
-                <div>
-                  <p className="text-text-secondary text-sm">Approved At</p>
-                  <p>{new Date(selectedStaff.approved_at).toLocaleString()}</p>
-                </div>
-              )}
-
-              {selectedStaff.declined_at && (
-                <div>
-                  <p className="text-text-secondary text-sm">Declined At</p>
-                  <p>{new Date(selectedStaff.declined_at).toLocaleString()}</p>
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                {selectedStaff.status === 'pending' && (
-                  <>
-                    <button onClick={() => approveStaff(selectedStaff.id)} className="btn-primary flex-1">
-                      Approve
-                    </button>
-                    <button onClick={() => declineStaff(selectedStaff.id)} className="btn-secondary flex-1">
-                      Decline
-                    </button>
-                  </>
-                )}
-                <button onClick={() => setSelectedStaff(null)} className="btn-secondary flex-1">
-                  Close
-                </button>
-              </div>
+      {/* Archive confirm modal */}
+      {archiveConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-t-[20px] p-5">
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-5" />
+            <p className="t-h2 text-text-primary">Archive this staff member?</p>
+            <p className="t-body text-text-secondary mt-2">They will no longer be able to access the system.</p>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setArchiveConfirm(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => archiveStaff(archiveConfirm)} className="btn-primary flex-1">Archive</button>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 
 type StockItem = {
   id: string
@@ -20,11 +21,13 @@ type StockItem = {
 
 export default function CloseShiftPage() {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
   const [stockItems, setStockItems] = useState<StockItem[]>([])
   const [activeShift, setActiveShift] = useState<any>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
     const userSession = getSession()
@@ -38,7 +41,6 @@ export default function CloseShiftPage() {
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
-    
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
@@ -47,7 +49,7 @@ export default function CloseShiftPage() {
       .single()
 
     if (!data || error) {
-      alert('No active shift to close')
+      toast('No active shift to close', 'warning')
       router.push('/dashboard')
     } else {
       setActiveShift(data)
@@ -58,7 +60,6 @@ export default function CloseShiftPage() {
 
   const fetchStockData = async (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
-    
     const { data, error } = await supabase
       .from('shift_stock')
       .select('*')
@@ -67,105 +68,80 @@ export default function CloseShiftPage() {
       .order('item_name')
 
     if (!error && data) {
-      const itemsWithExpected = data.map(item => ({
+      setStockItems(data.map(item => ({
         ...item,
         expected_remaining: item.remaining_qty,
         actual_remaining: item.remaining_qty,
         variance: 0
-      }))
-      setStockItems(itemsWithExpected)
+      })))
     }
   }
 
   const updateActualStock = (itemId: string, actualQty: number) => {
-    setStockItems(prevItems =>
-      prevItems.map(item => {
-        if (item.id === itemId) {
-          const variance = actualQty - item.expected_remaining
-          return {
-            ...item,
-            actual_remaining: actualQty,
-            variance: variance
-          }
-        }
-        return item
-      })
+    setStockItems(prev =>
+      prev.map(item =>
+        item.id === itemId
+          ? { ...item, actual_remaining: actualQty, variance: actualQty - item.expected_remaining }
+          : item
+      )
     )
   }
 
   const calculateTotals = () => {
-    let totalExpected = 0
-    let totalActual = 0
-    let totalVariance = 0
-
-    stockItems.forEach(item => {
-      totalExpected += item.expected_remaining
-      totalActual += item.actual_remaining
-      totalVariance += item.variance
-    })
-
-    return { totalExpected, totalActual, totalVariance }
+    return stockItems.reduce((acc, item) => ({
+      totalExpected: acc.totalExpected + item.expected_remaining,
+      totalActual: acc.totalActual + item.actual_remaining,
+      totalVariance: acc.totalVariance + item.variance,
+    }), { totalExpected: 0, totalActual: 0, totalVariance: 0 })
   }
 
   const handleCloseShift = async () => {
-    if (!confirm('Close this shift? This will lock orders and generate final report.')) {
-      return
-    }
-
+    setShowConfirm(false)
     setSubmitting(true)
     const today = new Date().toISOString().split('T')[0]
 
-    for (const item of stockItems) {
-      const { error } = await supabase
-        .from('shift_close')
-        .insert({
-          shift_date: today,
-          shift_id: activeShift.shift_id,
-          closer_staff_id: session.id,
-          item_id: item.item_id,
-          opening_qty: item.opening_qty,
-          sold_qty: item.sold_qty,
-          actual_remaining: item.actual_remaining,
-          variance: item.variance
-        })
+    // Save close records in batch
+    const closeRecords = stockItems.map(item => ({
+      shift_date: today,
+      shift_id: activeShift.shift_id,
+      closer_staff_id: session.id,
+      item_id: item.item_id,
+      opening_qty: item.opening_qty,
+      sold_qty: item.sold_qty,
+      actual_remaining: item.actual_remaining,
+      variance: item.variance
+    }))
 
-      if (error) {
-        console.error('Error saving close record:', error)
-        alert('Error closing shift: ' + error.message)
-        setSubmitting(false)
-        return
-      }
+    const { error: closeError } = await supabase
+      .from('shift_close')
+      .insert(closeRecords)
+
+    if (closeError) {
+      toast('Error closing shift: ' + closeError.message, 'error')
+      setSubmitting(false)
+      return
     }
 
-    const { data: orders, error: ordersError } = await supabase
+    const { data: orders } = await supabase
       .from('orders')
       .select('total, payment_method, cash_amount, transfer_amount')
       .eq('shift_date', today)
       .eq('shift_id', activeShift.shift_id)
 
-    if (ordersError) {
-      console.error('Error fetching orders:', ordersError)
-    }
+    const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
+    const cashRevenue = orders?.reduce((sum, o) => sum + (o.cash_amount || 0), 0) || 0
+    const transferRevenue = orders?.reduce((sum, o) => sum + (o.transfer_amount || 0), 0) || 0
 
-    const totalRevenue = orders?.reduce((sum, order) => sum + order.total, 0) || 0
-    const cashRevenue = orders?.reduce((sum, order) => sum + (order.cash_amount || 0), 0) || 0
-    const transferRevenue = orders?.reduce((sum, order) => sum + (order.transfer_amount || 0), 0) || 0
-
-    const { data: expenses, error: expensesError } = await supabase
+    const { data: expenses } = await supabase
       .from('expenses')
       .select('amount, payment_method')
       .eq('shift_date', today)
       .eq('shift_id', activeShift.shift_id)
 
-    if (expensesError) {
-      console.error('Error fetching expenses:', expensesError)
-    }
+    const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0
+    const cashExpenses = expenses?.reduce((sum, e) => sum + (e.payment_method === 'cash' ? e.amount : 0), 0) || 0
+    const transferExpenses = expenses?.reduce((sum, e) => sum + (e.payment_method === 'transfer' ? e.amount : 0), 0) || 0
 
-    const totalExpenses = expenses?.reduce((sum, exp) => sum + exp.amount, 0) || 0
-    const cashExpenses = expenses?.reduce((sum, exp) => sum + (exp.payment_method === 'cash' ? exp.amount : 0), 0) || 0
-    const transferExpenses = expenses?.reduce((sum, exp) => sum + (exp.payment_method === 'transfer' ? exp.amount : 0), 0) || 0
-
-    // Log shift closed activity
     await supabase.from('shift_activities').insert({
       shift_date: today,
       shift_id: activeShift.shift_id,
@@ -174,7 +150,7 @@ export default function CloseShiftPage() {
       staff_role: session.role,
       action_type: 'CLOSE_SHIFT',
       action_details: { closed_at: new Date().toISOString() }
-    });
+    })
 
     const { error: sessionError } = await supabase
       .from('shift_sessions')
@@ -186,12 +162,12 @@ export default function CloseShiftPage() {
       .eq('id', activeShift.id)
 
     if (sessionError) {
-      alert('Error updating shift status: ' + sessionError.message)
+      toast('Error updating shift status: ' + sessionError.message, 'error')
       setSubmitting(false)
       return
     }
 
-    const summary = {
+    localStorage.setItem('shift_summary', JSON.stringify({
       shiftName: activeShift.shifts?.name,
       shiftDate: today,
       openedAt: activeShift.opened_at,
@@ -211,57 +187,63 @@ export default function CloseShiftPage() {
         actual: item.actual_remaining,
         variance: item.variance
       }))
-    }
+    }))
 
-    localStorage.setItem('shift_summary', JSON.stringify(summary))
     router.push('/dashboard/shift-summary')
     setSubmitting(false)
   }
 
   const { totalExpected, totalActual, totalVariance } = calculateTotals()
 
-  if (loading) return <div className="p-6">Loading...</div>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-bg-subtle pb-20">
-      <div className="p-4">
-        <div className="card mb-4 bg-primary text-white border-none">
-          <h2 className="font-bold text-lg">Close Shift</h2>
-          <p className="text-sm opacity-90">{activeShift?.shifts?.name} Shift</p>
-          <p className="text-xs opacity-75 mt-1">{new Date().toLocaleDateString()}</p>
+    <div className="min-h-screen bg-bg-subtle pb-24">
+      <div className="p-4 space-y-4">
+
+        {/* Header card */}
+        <div className="card border-l-4 border-l-primary">
+          <p className="t-h2 text-text-primary">Close Shift</p>
+          <p className="t-body text-text-secondary mt-1">{activeShift?.shifts?.name} Shift</p>
+          <p className="t-small text-text-muted mt-0.5">{new Date().toLocaleDateString('en-NG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>
 
-        <div className="card mb-4">
-          <h3 className="font-bold text-text-primary mb-3">Count Actual Stock</h3>
-          <p className="text-text-secondary text-sm mb-4">
-            Enter the physical count of each item
-          </p>
-          
+        {/* Stock count */}
+        <div className="card">
+          <p className="t-h3 text-text-primary mb-1">Count Actual Stock</p>
+          <p className="t-small text-text-secondary mb-4">Enter the physical count of each item</p>
+
           <div className="space-y-4">
             {stockItems.map((item) => (
-              <div key={item.id} className="border-b border-border pb-3">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-text-primary">{item.item_name}</span>
-                  <span className="text-xs text-text-muted">{item.unit}</span>
+              <div key={item.id} className="border-b border-border pb-4">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="t-body text-text-primary font-medium">{item.item_name}</p>
+                  <p className="t-small text-text-muted">{item.unit}</p>
                 </div>
-                
-                <div className="grid grid-cols-3 gap-2 text-center text-xs mb-2">
-                  <div>
-                    <p className="text-text-muted">Opening</p>
-                    <p className="font-mono font-bold">{item.opening_qty}</p>
+
+                <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                  <div className="bg-bg-subtle rounded-[8px] p-2">
+                    <p className="t-small text-text-muted">Opening</p>
+                    <p className="t-mono font-medium text-text-primary">{item.opening_qty}</p>
                   </div>
-                  <div>
-                    <p className="text-text-muted">Sold</p>
-                    <p className="font-mono font-bold">{item.sold_qty}</p>
+                  <div className="bg-bg-subtle rounded-[8px] p-2">
+                    <p className="t-small text-text-muted">Sold</p>
+                    <p className="t-mono font-medium text-text-primary">{item.sold_qty}</p>
                   </div>
-                  <div>
-                    <p className="text-text-muted">Expected</p>
-                    <p className="font-mono font-bold">{item.expected_remaining}</p>
+                  <div className="bg-bg-subtle rounded-[8px] p-2">
+                    <p className="t-small text-text-muted">Expected</p>
+                    <p className="t-mono font-medium text-text-primary">{item.expected_remaining}</p>
                   </div>
                 </div>
-                
+
                 <div>
-                  <label className="block text-text-primary text-sm mb-1">Actual Count</label>
+                  <label className="block t-label text-text-primary mb-1">Actual Count</label>
                   <input
                     type="number"
                     value={item.actual_remaining}
@@ -270,7 +252,7 @@ export default function CloseShiftPage() {
                     min="0"
                   />
                   {item.variance !== 0 && (
-                    <p className={`text-xs mt-1 ${item.variance > 0 ? 'text-success' : 'text-danger'}`}>
+                    <p className={`t-small mt-1 ${item.variance > 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>
                       {item.variance > 0 ? `+${item.variance} surplus` : `${item.variance} shortage`}
                     </p>
                   )}
@@ -280,34 +262,63 @@ export default function CloseShiftPage() {
           </div>
         </div>
 
-        <div className="card mb-4">
-          <h3 className="font-bold text-text-primary mb-3">Summary</h3>
+        {/* Summary */}
+        <div className="card">
+          <p className="t-h3 text-text-primary mb-3">Summary</p>
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-text-secondary">Total Expected Stock</span>
-              <span className="font-mono font-bold">{totalExpected}</span>
+              <p className="t-body text-text-secondary">Total Expected</p>
+              <p className="t-mono text-text-primary">{totalExpected}</p>
             </div>
             <div className="flex justify-between">
-              <span className="text-text-secondary">Total Actual Stock</span>
-              <span className="font-mono font-bold">{totalActual}</span>
+              <p className="t-body text-text-secondary">Total Actual</p>
+              <p className="t-mono text-text-primary">{totalActual}</p>
             </div>
             <div className="flex justify-between border-t border-border pt-2 mt-2">
-              <span className="font-semibold">Total Variance</span>
-              <span className={`font-mono font-bold ${totalVariance > 0 ? 'text-success' : totalVariance < 0 ? 'text-danger' : ''}`}>
+              <p className="t-body text-text-primary font-medium">Total Variance</p>
+              <p className={`t-mono font-medium ${totalVariance > 0 ? 'text-[#2E7D32]' : totalVariance < 0 ? 'text-danger' : 'text-text-primary'}`}>
                 {totalVariance > 0 ? `+${totalVariance}` : totalVariance}
-              </span>
+              </p>
             </div>
           </div>
         </div>
 
         <button
-          onClick={handleCloseShift}
+          onClick={() => setShowConfirm(true)}
           disabled={submitting}
           className="btn-primary w-full"
         >
           {submitting ? 'Closing Shift...' : 'Close Shift & Generate Report'}
         </button>
+
       </div>
+
+      {/* Confirm modal — replaces browser confirm() */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="bg-white w-full max-w-md rounded-t-[20px] p-5">
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-5" />
+            <p className="t-h2 text-text-primary">Close this shift?</p>
+            <p className="t-body text-text-secondary mt-2">
+              This will lock all orders and generate the final shift report. This cannot be undone.
+            </p>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCloseShift}
+                className="btn-primary flex-1"
+              >
+                Yes, Close Shift
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
