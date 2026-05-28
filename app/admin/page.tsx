@@ -9,8 +9,8 @@ import {
   Calendar, Package, AlertCircle 
 } from 'lucide-react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
+  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
 
 type DashboardStats = {
@@ -66,10 +66,10 @@ export default function AdminOverview() {
     const today = new Date().toISOString().split('T')[0]
     const last7Days = getLast7Days()
 
-    // Get total revenue from orders
+    // Get orders with id field
     const { data: orders } = await supabase
       .from('orders')
-      .select('total, payment_method, created_at, items_json')
+      .select('id, total, payment_method, created_at, items_json')
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -141,9 +141,9 @@ export default function AdminOverview() {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5)
 
-    // Recent orders
+    // Recent orders - now with id
     const recentOrders = orders?.slice(0, 5).map(o => ({
-      id: o.id.slice(-8),
+      id: o.id?.slice(-8) || 'unknown',
       total: o.total,
       payment_method: o.payment_method,
       created_at: new Date(o.created_at).toLocaleTimeString()
