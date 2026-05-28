@@ -1,7 +1,8 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, Users, Utensils, Clock, Package, FileText, MessageCircle, Settings } from 'lucide-react'
+import { LayoutDashboard, Users, Utensils, Clock, Package, FileText, MessageCircle, Settings, LogOut } from 'lucide-react'
+import { clearSession } from '@/lib/auth'
 
 export default function AdminLayout({
   children,
@@ -10,6 +11,11 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+
+  const handleLogout = () => {
+    clearSession()
+    router.push('/auth/login')
+  }
 
   const navItems = [
     { name: 'Overview', icon: LayoutDashboard, path: '/admin' },
@@ -27,7 +33,16 @@ export default function AdminLayout({
       {/* Top Bar */}
       <div className="top-bar">
         <h1 className="font-display font-bold text-xl text-primary">UPTIMYZAS</h1>
-        <span className="text-text-secondary text-sm">Admin Panel</span>
+        <div className="flex items-center gap-4">
+          <span className="text-text-secondary text-sm">Admin Panel</span>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-danger hover:bg-danger/10 px-3 py-1 rounded-default transition"
+          >
+            <LogOut size={18} />
+            <span className="text-sm font-medium hidden sm:inline">Logout</span>
+          </button>
+        </div>
       </div>
       
       <div className="flex pt-14">
@@ -52,6 +67,14 @@ export default function AdminLayout({
                 </button>
               )
             })}
+            {/* Logout button in sidebar for desktop */}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-default text-danger hover:bg-danger/10 transition-colors mt-4"
+            >
+              <LogOut size={20} />
+              <span className="font-medium">Logout</span>
+            </button>
           </div>
         </div>
         
@@ -79,6 +102,14 @@ export default function AdminLayout({
             </button>
           )
         })}
+        {/* Logout button in mobile bottom nav */}
+        <button
+          onClick={handleLogout}
+          className="flex flex-col items-center gap-1 px-3 py-1 rounded-default text-danger"
+        >
+          <LogOut size={22} />
+          <span className="text-xs font-medium">Exit</span>
+        </button>
       </div>
     </div>
   )
