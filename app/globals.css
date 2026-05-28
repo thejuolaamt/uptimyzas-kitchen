@@ -1,7 +1,6 @@
 /* app/globals.css */
 @import "tailwindcss";
 
-/* Custom theme variables */
 @theme {
   /* Colors */
   --color-primary: #8B0000;
@@ -29,14 +28,56 @@
   --radius-default: 10px;
   --radius-lg: 16px;
 
-  /* Fonts */
-  --font-display: "Barlow Condensed", system-ui, sans-serif;
-  --font-heading: "Barlow", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  /* ─── TYPE SCALE ───────────────────────────────
+     To change fonts app-wide: update lib/fonts.ts
+     then mirror the values below.
+     Font family swap: change --font-brand/body/mono
+     only — everything else stays the same.
+  ─────────────────────────────────────────────── */
+  --font-brand:   var(--font-geist), system-ui, sans-serif;
+  --font-body:    var(--font-geist), system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  /* Size tokens */
+  --text-brand:  28px;
+  --text-h1:     28px;
+  --text-h2:     22px;
+  --text-h3:     18px;
+  --text-body:   14px;
+  --text-small:  12px;
+  --text-label:  13px;
+  --text-mono:   14px;
+
+  /* Weight tokens */
+  --weight-brand:  700;
+  --weight-h1:     634;
+  --weight-h2:     453;
+  --weight-h3:     295;
+  --weight-body:   400;
+  --weight-small:  300;
+  --weight-label:  500;
+  --weight-mono:   400;
+
+  /* Line height tokens */
+  --leading-brand: 1.1;
+  --leading-h1:    1.2;
+  --leading-h2:    1.3;
+  --leading-h3:    1.4;
+  --leading-body:  1.5;
+  --leading-small: 1.5;
+  --leading-label: 1;
+
+  /* Tracking tokens */
+  --tracking-brand: -0.02em;
+  --tracking-h1:    -0.01em;
+  --tracking-h2:    -0.005em;
+  --tracking-h3:     0em;
+  --tracking-body:   0em;
+  --tracking-small:  0.01em;
+  --tracking-label:  0.02em;
 }
 
-/* Base styles */
+/* ─── BASE ──────────────────────────────────── */
 * {
   border-color: var(--color-border);
 }
@@ -45,10 +86,78 @@ body {
   background-color: var(--color-bg-subtle);
   color: var(--color-text-primary);
   font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: var(--weight-body);
+  line-height: var(--leading-body);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Touch target minimum */
+/* ─── TYPE CLASSES ──────────────────────────── */
+/* Use these throughout the app. e.g. className="t-h1" */
+
+.t-brand {
+  font-family: var(--font-brand);
+  font-size: var(--text-brand);
+  font-weight: var(--weight-brand);
+  line-height: var(--leading-brand);
+  letter-spacing: var(--tracking-brand);
+}
+
+.t-h1 {
+  font-family: var(--font-body);
+  font-size: var(--text-h1);
+  font-weight: var(--weight-h1);
+  line-height: var(--leading-h1);
+  letter-spacing: var(--tracking-h1);
+}
+
+.t-h2 {
+  font-family: var(--font-body);
+  font-size: var(--text-h2);
+  font-weight: var(--weight-h2);
+  line-height: var(--leading-h2);
+  letter-spacing: var(--tracking-h2);
+}
+
+.t-h3 {
+  font-family: var(--font-body);
+  font-size: var(--text-h3);
+  font-weight: var(--weight-h3);
+  line-height: var(--leading-h3);
+  letter-spacing: var(--tracking-h3);
+}
+
+.t-body {
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: var(--weight-body);
+  line-height: var(--leading-body);
+  letter-spacing: var(--tracking-body);
+}
+
+.t-small {
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  font-weight: var(--weight-small);
+  line-height: var(--leading-small);
+  letter-spacing: var(--tracking-small);
+}
+
+.t-label {
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  font-weight: var(--weight-label);
+  line-height: var(--leading-label);
+  letter-spacing: var(--tracking-label);
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  font-weight: var(--weight-mono);
+}
+
+/* ─── TOUCH TARGETS ─────────────────────────── */
 button,
 a,
 [role="button"],
@@ -59,16 +168,21 @@ textarea {
   min-width: 44px;
 }
 
-/* Button variants */
+/* ─── BUTTONS ───────────────────────────────── */
 .btn-primary {
   background-color: var(--color-primary);
   color: white;
-  font-weight: 600;
-  text-transform: uppercase;
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  font-weight: var(--weight-label);
+  letter-spacing: var(--tracking-label);
   padding: 12px 24px;
   border-radius: var(--radius-default);
   transition: all 0.15s;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-primary:hover {
@@ -87,19 +201,24 @@ textarea {
 .btn-secondary {
   background-color: var(--color-bg-subtle);
   color: var(--color-text-primary);
-  font-weight: 600;
-  text-transform: uppercase;
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  font-weight: var(--weight-label);
+  letter-spacing: var(--tracking-label);
   padding: 8px 16px;
   border-radius: var(--radius-default);
   border: 1px solid var(--color-border);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-secondary:active {
   transform: scale(0.98);
 }
 
-/* Form inputs - 48px height */
+/* ─── INPUTS ────────────────────────────────── */
 .input-base {
   width: 100%;
   height: 48px;
@@ -108,7 +227,9 @@ textarea {
   border: 1px solid var(--color-border);
   background-color: white;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: var(--weight-body);
 }
 
 .input-base:focus {
@@ -120,7 +241,7 @@ textarea {
   color: var(--color-text-muted);
 }
 
-/* Card styles */
+/* ─── CARDS ─────────────────────────────────── */
 .card {
   background-color: white;
   border: 1px solid var(--color-border);
@@ -128,7 +249,7 @@ textarea {
   padding: 16px;
 }
 
-/* Bottom navigation */
+/* ─── NAVIGATION ────────────────────────────── */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -144,7 +265,6 @@ textarea {
   z-index: 10;
 }
 
-/* Top bar */
 .top-bar {
   position: fixed;
   top: 0;
@@ -160,7 +280,7 @@ textarea {
   z-index: 10;
 }
 
-/* Progress bar for stock */
+/* ─── PROGRESS BARS ─────────────────────────── */
 .progress-bar {
   height: 6px;
   border-radius: 9999px;
@@ -174,59 +294,19 @@ textarea {
   transition: all 0.3s;
 }
 
-.progress-fill-high {
-  background-color: var(--color-success);
-}
+.progress-fill-high  { background-color: var(--color-success); }
+.progress-fill-medium { background-color: var(--color-warning); }
+.progress-fill-low   { background-color: var(--color-danger); }
 
-.progress-fill-medium {
-  background-color: var(--color-warning);
-}
-
-.progress-fill-low {
-  background-color: var(--color-danger);
-}
-
-/* Utility classes */
-.text-primary {
-  color: var(--color-primary);
-}
-
-.bg-primary {
-  background-color: var(--color-primary);
-}
-
-.bg-primary-light {
-  background-color: var(--color-primary-light);
-}
-
-.text-text-primary {
-  color: var(--color-text-primary);
-}
-
-.text-text-secondary {
-  color: var(--color-text-secondary);
-}
-
-.text-text-muted {
-  color: var(--color-text-muted);
-}
-
-.text-success {
-  color: var(--color-success);
-}
-
-.text-danger {
-  color: var(--color-danger);
-}
-
-.text-warning {
-  color: var(--color-warning);
-}
-
-.border-border {
-  border-color: var(--color-border);
-}
-
-.bg-bg-subtle {
-  background-color: var(--color-bg-subtle);
-}
+/* ─── UTILITY ───────────────────────────────── */
+.text-primary        { color: var(--color-primary); }
+.bg-primary          { background-color: var(--color-primary); }
+.bg-primary-light    { background-color: var(--color-primary-light); }
+.text-text-primary   { color: var(--color-text-primary); }
+.text-text-secondary { color: var(--color-text-secondary); }
+.text-text-muted     { color: var(--color-text-muted); }
+.text-success        { color: var(--color-success); }
+.text-danger         { color: var(--color-danger); }
+.text-warning        { color: var(--color-warning); }
+.border-border       { border-color: var(--color-border); }
+.bg-bg-subtle        { background-color: var(--color-bg-subtle); }

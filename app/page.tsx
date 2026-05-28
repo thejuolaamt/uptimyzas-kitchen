@@ -22,11 +22,10 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-primary">
-      <div className="text-white text-center">
-        <h1 className="font-display font-bold text-5xl">UPTIMYZAS</h1>
-        <p className="font-display text-2xl mt-1">Kitchen</p>
-        <div className="mt-6 w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto"></div>
-        <p className="mt-4 text-white/80">Loading...</p>
+      <div className="text-white text-center px-6">
+        <h1 className="t-brand text-white">Uptimyzas Kitchen</h1>
+        <p className="t-small mt-2 tracking-widest uppercase text-white/60">Restaurant Management System</p>
+        <div className="mt-8 w-7 h-7 border-[3px] border-white/30 border-t-white rounded-full animate-spin mx-auto"></div>
       </div>
     </div>
   )

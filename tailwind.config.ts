@@ -9,10 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ['Barlow Condensed', 'system-ui', 'sans-serif'],
-        heading: ['Barlow', 'system-ui', 'sans-serif'],
-        body: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        body:    ['var(--font-geist)', 'system-ui', 'sans-serif'],
+        mono:    ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
     },
   },

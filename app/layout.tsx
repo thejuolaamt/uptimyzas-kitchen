@@ -1,11 +1,14 @@
 import type { Metadata } from 'next'
-import { Inter, Barlow, Barlow_Condensed } from 'next/font/google'
+import { Geist } from 'next/font/google'
 import './globals.css'
 import PWAInstall from './pwa-install/page'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-const barlow = Barlow({ subsets: ['latin'], weight: ['400', '600', '700'], variable: '--font-barlow' })
-const barlowCondensed = Barlow_Condensed({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-barlow-condensed' })
+const geist = Geist({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700', '800', '900'],
+  variable: '--font-geist',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Uptimyzas Kitchen',
@@ -36,7 +39,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body className={`${inter.variable} ${barlow.variable} ${barlowCondensed.variable} font-body`}>
+      <body className={`${geist.variable} font-body`}>
         {children}
         <PWAInstall />
       </body>
