@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { useToast } from '@/lib/toast'
 import { Download, Calendar } from 'lucide-react'
 
 type ShiftReport = {
@@ -17,8 +18,6 @@ type ShiftReport = {
   cash_revenue: number
   transfer_revenue: number
   total_expenses: number
-  cash_expenses: number
-  transfer_expenses: number
   net_profit: number
   order_count: number
   total_variance: number
@@ -26,8 +25,8 @@ type ShiftReport = {
 
 export default function AdminReportsPage() {
   const router = useRouter()
+  const toast = useToast()
   const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [reports, setReports] = useState<ShiftReport[]>([])
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -41,147 +40,113 @@ export default function AdminReportsPage() {
     } else if (userSession.role !== 'admin') {
       router.push('/dashboard')
     } else {
-      setSession(userSession)
       fetchShifts()
       fetchReports()
     }
   }, [router])
 
   const fetchShifts = async () => {
-    const { data, error } = await supabase
-      .from('shifts')
-      .select('*')
-      .order('name')
-
-    if (!error && data) {
-      setShifts(data)
-    }
+    const { data } = await supabase.from('shifts').select('*').order('name')
+    if (data) setShifts(data)
   }
 
   const fetchReports = async () => {
     setLoading(true)
-    
-    let query = supabase
+
+    // Build sessions query
+    let sessionsQuery = supabase
       .from('shift_sessions')
-      .select(`
-        *,
-        shifts(name),
-        opener:opener_staff_id(first_name, surname),
-        closer:closer_staff_id(first_name, surname)
-      `)
+      .select(`*, shifts(name), opener:opener_staff_id(first_name, surname), closer:closer_staff_id(first_name, surname)`)
       .eq('status', 'closed')
-      .order('closed_at', { ascending: false })
+      .order('shift_date', { ascending: false })
 
-    if (startDate) {
-      query = query.gte('shift_date', startDate)
+    if (startDate) sessionsQuery = sessionsQuery.gte('shift_date', startDate)
+    if (endDate) sessionsQuery = sessionsQuery.lte('shift_date', endDate)
+    if (selectedShift) sessionsQuery = sessionsQuery.eq('shift_id', selectedShift)
+
+    const { data: sessions, error } = await sessionsQuery
+
+    if (error) {
+      toast('Error loading reports: ' + error.message, 'error')
+      setLoading(false)
+      return
     }
-    if (endDate) {
-      query = query.lte('shift_date', endDate)
+
+    if (!sessions || sessions.length === 0) {
+      setReports([])
+      setLoading(false)
+      return
     }
-    if (selectedShift) {
-      query = query.eq('shift_id', selectedShift)
-    }
 
-    const { data: sessions, error } = await query
+    // Collect all shift dates and IDs to batch fetch
+    const shiftDates = sessions.map(s => s.shift_date)
+    const shiftIds = sessions.map(s => s.shift_id)
 
-    if (!error && sessions) {
-      const reportsData = await Promise.all(sessions.map(async (session) => {
-        const { data: orders } = await supabase
-          .from('orders')
-          .select('total, payment_method, cash_amount, transfer_amount')
-          .eq('shift_date', session.shift_date)
-          .eq('shift_id', session.shift_id)
+    // Single batch fetch for orders
+    const { data: allOrders } = await supabase
+      .from('orders')
+      .select('shift_date, shift_id, total, cash_amount, transfer_amount')
+      .in('shift_date', shiftDates)
+      .in('shift_id', shiftIds)
 
-        const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
-        const cashRevenue = orders?.reduce((sum, o) => sum + (o.cash_amount || 0), 0) || 0
-        const transferRevenue = orders?.reduce((sum, o) => sum + (o.transfer_amount || 0), 0) || 0
-        const orderCount = orders?.length || 0
+    // Single batch fetch for expenses
+    const { data: allExpenses } = await supabase
+      .from('expenses')
+      .select('shift_date, shift_id, amount')
+      .in('shift_date', shiftDates)
+      .in('shift_id', shiftIds)
 
-        const { data: expenses } = await supabase
-          .from('expenses')
-          .select('amount, payment_method')
-          .eq('shift_date', session.shift_date)
-          .eq('shift_id', session.shift_id)
+    // Single batch fetch for variance
+    const { data: allVariance } = await supabase
+      .from('shift_close')
+      .select('shift_date, shift_id, variance')
+      .in('shift_date', shiftDates)
+      .in('shift_id', shiftIds)
 
-        const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0
-        const cashExpenses = expenses?.reduce((sum, e) => sum + (e.payment_method === 'cash' ? e.amount : 0), 0) || 0
-        const transferExpenses = expenses?.reduce((sum, e) => sum + (e.payment_method === 'transfer' ? e.amount : 0), 0) || 0
+    // Build reports by merging — no more per-session queries
+    const reportsData: ShiftReport[] = sessions.map(session => {
+      const key = `${session.shift_date}_${session.shift_id}`
 
-        const { data: varianceData } = await supabase
-          .from('shift_close')
-          .select('variance')
-          .eq('shift_date', session.shift_date)
-          .eq('shift_id', session.shift_id)
+      const orders = (allOrders || []).filter(o => `${o.shift_date}_${o.shift_id}` === key)
+      const expenses = (allExpenses || []).filter(e => `${e.shift_date}_${e.shift_id}` === key)
+      const variances = (allVariance || []).filter(v => `${v.shift_date}_${v.shift_id}` === key)
 
-        const totalVariance = varianceData?.reduce((sum, v) => sum + v.variance, 0) || 0
+      const total_revenue = orders.reduce((s, o) => s + o.total, 0)
+      const cash_revenue = orders.reduce((s, o) => s + (o.cash_amount || 0), 0)
+      const transfer_revenue = orders.reduce((s, o) => s + (o.transfer_amount || 0), 0)
+      const total_expenses = expenses.reduce((s, e) => s + e.amount, 0)
+      const total_variance = variances.reduce((s, v) => s + v.variance, 0)
 
-        return {
-          shift_date: session.shift_date,
-          shift_name: session.shifts?.name || 'Unknown',
-          opened_at: session.opened_at,
-          closed_at: session.closed_at,
-          opener_name: session.opener ? `${session.opener.first_name} ${session.opener.surname}` : 'Unknown',
-          closer_name: session.closer ? `${session.closer.first_name} ${session.closer.surname}` : 'Unknown',
-          total_revenue: totalRevenue,
-          cash_revenue: cashRevenue,
-          transfer_revenue: transferRevenue,
-          total_expenses: totalExpenses,
-          cash_expenses: cashExpenses,
-          transfer_expenses: transferExpenses,
-          net_profit: totalRevenue - totalExpenses,
-          order_count: orderCount,
-          total_variance: totalVariance
-        }
-      }))
+      return {
+        shift_date: session.shift_date,
+        shift_name: session.shifts?.name || 'Unknown',
+        opened_at: session.opened_at,
+        closed_at: session.closed_at,
+        opener_name: session.opener ? `${session.opener.first_name} ${session.opener.surname}` : '—',
+        closer_name: session.closer ? `${session.closer.first_name} ${session.closer.surname}` : '—',
+        total_revenue,
+        cash_revenue,
+        transfer_revenue,
+        total_expenses,
+        net_profit: total_revenue - total_expenses,
+        order_count: orders.length,
+        total_variance
+      }
+    })
 
-      setReports(reportsData)
-    }
+    setReports(reportsData)
     setLoading(false)
   }
 
   const exportToCSV = () => {
-    // Create CSV header
-    const headers = [
-      'Shift Date',
-      'Shift Name',
-      'Opened By',
-      'Closed By',
-      'Order Count',
-      'Cash Revenue',
-      'Transfer Revenue',
-      'Total Revenue',
-      'Cash Expenses',
-      'Transfer Expenses',
-      'Total Expenses',
-      'Net Profit',
-      'Stock Variance'
-    ]
-    
-    // Create CSV rows
-    const rows = reports.map(report => [
-      report.shift_date,
-      report.shift_name,
-      report.opener_name,
-      report.closer_name,
-      report.order_count,
-      report.cash_revenue,
-      report.transfer_revenue,
-      report.total_revenue,
-      report.cash_expenses,
-      report.transfer_expenses,
-      report.total_expenses,
-      report.net_profit,
-      report.total_variance
+    const headers = ['Date', 'Shift', 'Opened By', 'Closed By', 'Orders', 'Cash', 'Transfer', 'Revenue', 'Expenses', 'Profit', 'Variance']
+    const rows = reports.map(r => [
+      r.shift_date, r.shift_name, r.opener_name, r.closer_name,
+      r.order_count, r.cash_revenue, r.transfer_revenue,
+      r.total_revenue, r.total_expenses, r.net_profit, r.total_variance
     ])
-    
-    // Combine headers and rows
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n')
-    
-    // Download file
-    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -190,155 +155,119 @@ export default function AdminReportsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const getTotalStats = () => {
-    return {
-      totalRevenue: reports.reduce((sum, r) => sum + r.total_revenue, 0),
-      totalExpenses: reports.reduce((sum, r) => sum + r.total_expenses, 0),
-      totalProfit: reports.reduce((sum, r) => sum + r.net_profit, 0),
-      totalOrders: reports.reduce((sum, r) => sum + r.order_count, 0),
-    }
+  const stats = {
+    totalRevenue: reports.reduce((s, r) => s + r.total_revenue, 0),
+    totalExpenses: reports.reduce((s, r) => s + r.total_expenses, 0),
+    totalProfit: reports.reduce((s, r) => s + r.net_profit, 0),
+    totalOrders: reports.reduce((s, r) => s + r.order_count, 0),
   }
 
-  const stats = getTotalStats()
-
-  if (loading) return <div className="p-6">Loading...</div>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-bg-subtle">
       <div className="p-6">
-        <h1 className="text-2xl font-bold text-text-primary mb-6">Shift Reports</h1>
+        <h1 className="t-h1 text-text-primary mb-6">Shift Reports</h1>
 
+        {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Total Shifts</p>
-            <p className="text-2xl font-bold text-primary">{reports.length}</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Total Orders</p>
-            <p className="text-2xl font-bold text-info">{stats.totalOrders}</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Total Revenue</p>
-            <p className="text-2xl font-bold text-success">₦{stats.totalRevenue.toLocaleString()}</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Total Profit</p>
-            <p className={`text-2xl font-bold ${stats.totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
-              ₦{stats.totalProfit.toLocaleString()}
-            </p>
-          </div>
+          {[
+            { label: 'Total Shifts', value: reports.length, color: 'text-primary' },
+            { label: 'Total Orders', value: stats.totalOrders, color: 'text-[#1565C0]' },
+            { label: 'Total Revenue', value: `₦${stats.totalRevenue.toLocaleString()}`, color: 'text-[#2E7D32]' },
+            { label: 'Total Profit', value: `₦${stats.totalProfit.toLocaleString()}`, color: stats.totalProfit >= 0 ? 'text-[#2E7D32]' : 'text-danger' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="card text-center">
+              <p className="t-small text-text-muted uppercase tracking-widest mb-1">{label}</p>
+              <p className={`t-h1 ${color}`}>{value}</p>
+            </div>
+          ))}
         </div>
 
+        {/* Filters */}
         <div className="card mb-6">
-          <h3 className="font-bold text-text-primary mb-3 flex items-center gap-2">
-            <Calendar size={18} />
-            Filters
-          </h3>
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar size={16} className="text-text-secondary" />
+            <p className="t-h3 text-text-primary">Filters</p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-text-secondary text-sm mb-1">Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="input-base"
-              />
+              <label className="block t-label text-text-primary mb-1">Start Date</label>
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input-base" />
             </div>
             <div>
-              <label className="block text-text-secondary text-sm mb-1">End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="input-base"
-              />
+              <label className="block t-label text-text-primary mb-1">End Date</label>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input-base" />
             </div>
             <div>
-              <label className="block text-text-secondary text-sm mb-1">Shift Type</label>
-              <select
-                value={selectedShift}
-                onChange={(e) => setSelectedShift(e.target.value)}
-                className="input-base"
-              >
+              <label className="block t-label text-text-primary mb-1">Shift Type</label>
+              <select value={selectedShift} onChange={(e) => setSelectedShift(e.target.value)} className="input-base">
                 <option value="">All Shifts</option>
-                {shifts.map(shift => (
-                  <option key={shift.id} value={shift.id}>{shift.name}</option>
-                ))}
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div className="flex gap-2 items-end">
               <button onClick={fetchReports} className="btn-primary flex-1">Apply</button>
-              <button onClick={() => {
-                setStartDate('')
-                setEndDate('')
-                setSelectedShift('')
-                fetchReports()
-              }} className="btn-secondary">Clear</button>
+              <button onClick={() => { setStartDate(''); setEndDate(''); setSelectedShift(''); fetchReports() }} className="btn-secondary">Clear</button>
             </div>
           </div>
         </div>
 
         {reports.length > 0 && (
-          <div className="flex gap-3 mb-6">
+          <div className="mb-4">
             <button onClick={exportToCSV} className="btn-primary flex items-center gap-2">
-              <Download size={18} />
-              Export to CSV
+              <Download size={16} /> Export CSV
             </button>
           </div>
         )}
 
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
+        {/* Table */}
+        <div className="bg-white rounded-[10px] border border-border overflow-x-auto">
+          <table className="w-full">
             <thead className="bg-bg-subtle border-b border-border">
               <tr>
-                <th className="text-left p-3 text-text-secondary">Date</th>
-                <th className="text-left p-3 text-text-secondary">Shift</th>
-                <th className="text-center p-3 text-text-secondary">Orders</th>
-                <th className="text-right p-3 text-text-secondary">Revenue</th>
-                <th className="text-right p-3 text-text-secondary">Expenses</th>
-                <th className="text-right p-3 text-text-secondary">Profit</th>
-                <th className="text-right p-3 text-text-secondary">Variance</th>
-                <th className="text-left p-3 text-text-secondary">Opened By</th>
-                <th className="text-left p-3 text-text-secondary">Closed By</th>
+                {['Date', 'Shift', 'Orders', 'Revenue', 'Expenses', 'Profit', 'Variance', 'Opened By', 'Closed By'].map(h => (
+                  <th key={h} className={`p-3 t-label text-text-secondary whitespace-nowrap ${['Orders', 'Revenue', 'Expenses', 'Profit', 'Variance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {reports.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center p-8 text-text-muted">
-                    No closed shifts found
-                  </td>
+                  <td colSpan={9} className="text-center p-10 t-body text-text-muted">No closed shifts found</td>
                 </tr>
               ) : (
-                reports.map((report, idx) => (
+                reports.map((r, idx) => (
                   <tr key={idx} className="border-b border-border hover:bg-bg-subtle">
-                    <td className="p-3 font-mono text-xs">{report.shift_date}</td>
-                    <td className="p-3 font-medium">{report.shift_name}</td>
-                    <td className="p-3 text-center">{report.order_count}</td>
-                    <td className="p-3 text-right text-success">₦{report.total_revenue.toLocaleString()}</td>
-                    <td className="p-3 text-right text-danger">₦{report.total_expenses.toLocaleString()}</td>
-                    <td className={`p-3 text-right font-bold ${report.net_profit >= 0 ? 'text-success' : 'text-danger'}`}>
-                      ₦{report.net_profit.toLocaleString()}
+                    <td className="p-3 t-mono text-text-secondary">{r.shift_date}</td>
+                    <td className="p-3 t-body text-text-primary font-medium">{r.shift_name}</td>
+                    <td className="p-3 t-mono text-right">{r.order_count}</td>
+                    <td className="p-3 t-mono text-[#2E7D32] text-right">₦{r.total_revenue.toLocaleString()}</td>
+                    <td className="p-3 t-mono text-danger text-right">₦{r.total_expenses.toLocaleString()}</td>
+                    <td className={`p-3 t-mono text-right font-medium ${r.net_profit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{r.net_profit.toLocaleString()}</td>
+                    <td className={`p-3 t-mono text-right ${r.total_variance > 0 ? 'text-[#2E7D32]' : r.total_variance < 0 ? 'text-danger' : 'text-text-muted'}`}>
+                      {r.total_variance > 0 ? `+${r.total_variance}` : r.total_variance}
                     </td>
-                    <td className={`p-3 text-right ${report.total_variance > 0 ? 'text-success' : report.total_variance < 0 ? 'text-danger' : ''}`}>
-                      {report.total_variance > 0 ? `+${report.total_variance}` : report.total_variance}
-                    </td>
-                    <td className="p-3 text-text-secondary text-xs">{report.opener_name}</td>
-                    <td className="p-3 text-text-secondary text-xs">{report.closer_name}</td>
+                    <td className="p-3 t-small text-text-secondary">{r.opener_name}</td>
+                    <td className="p-3 t-small text-text-secondary">{r.closer_name}</td>
                   </tr>
                 ))
               )}
             </tbody>
             {reports.length > 0 && (
-              <tfoot className="bg-bg-subtle border-t border-border font-bold">
+              <tfoot className="bg-bg-subtle border-t border-border">
                 <tr>
-                  <td colSpan={2} className="p-3">Total</td>
-                  <td className="p-3 text-center">{stats.totalOrders}</td>
-                  <td className="p-3 text-right text-success">₦{stats.totalRevenue.toLocaleString()}</td>
-                  <td className="p-3 text-right text-danger">₦{stats.totalExpenses.toLocaleString()}</td>
-                  <td className={`p-3 text-right ${stats.totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
-                    ₦{stats.totalProfit.toLocaleString()}
-                  </td>
+                  <td colSpan={2} className="p-3 t-label text-text-primary">Total</td>
+                  <td className="p-3 t-mono text-right">{stats.totalOrders}</td>
+                  <td className="p-3 t-mono text-[#2E7D32] text-right">₦{stats.totalRevenue.toLocaleString()}</td>
+                  <td className="p-3 t-mono text-danger text-right">₦{stats.totalExpenses.toLocaleString()}</td>
+                  <td className={`p-3 t-mono text-right font-medium ${stats.totalProfit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{stats.totalProfit.toLocaleString()}</td>
                   <td colSpan={3} className="p-3"></td>
                 </tr>
               </tfoot>
