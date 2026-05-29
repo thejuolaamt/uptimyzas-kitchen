@@ -4,14 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { 
-  TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, 
-  Calendar, Package, AlertCircle 
-} from 'lucide-react'
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell
-} from 'recharts'
+import { TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, Package, AlertCircle } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 
 type DashboardStats = {
   totalRevenue: number
@@ -30,23 +24,25 @@ type DashboardStats = {
 
 const COLORS = ['#8B0000', '#2E7D32', '#1565C0', '#E65100']
 
+const getLast7Days = () => {
+  const dates = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    dates.push(d.toISOString().split('T')[0])
+  }
+  return dates
+}
+
 export default function AdminOverview() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
   const [stats, setStats] = useState<DashboardStats>({
-    totalRevenue: 0,
-    totalOrders: 0,
-    totalExpenses: 0,
-    totalProfit: 0,
-    activeStaff: 0,
-    pendingApprovals: 0,
-    lowStockItems: 0,
-    activeShift: null,
-    recentOrders: [],
-    revenueByDay: [],
-    revenueByPaymentMethod: [],
-    topSellingItems: []
+    totalRevenue: 0, totalOrders: 0, totalExpenses: 0, totalProfit: 0,
+    activeStaff: 0, pendingApprovals: 0, lowStockItems: 0,
+    activeShift: null, recentOrders: [], revenueByDay: [],
+    revenueByPaymentMethod: [], topSellingItems: []
   })
 
   useEffect(() => {
@@ -65,20 +61,23 @@ export default function AdminOverview() {
     setLoading(true)
     const today = new Date().toISOString().split('T')[0]
     const last7Days = getLast7Days()
+    const sevenDaysAgo = last7Days[0]
 
+    // Scoped to last 7 days — not all-time limit(200)
     const { data: orders } = await supabase
       .from('orders')
-      .select('id, total, payment_method, created_at, items_json')
+      .select('id, total, payment_method, cash_amount, transfer_amount, created_at, items_json')
+      .gte('created_at', `${sevenDaysAgo}T00:00:00`)
       .order('created_at', { ascending: false })
-      .limit(200)
 
-    const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
+    const totalRevenue = orders?.reduce((s, o) => s + o.total, 0) || 0
 
     const { data: expenses } = await supabase
       .from('expenses')
       .select('amount')
+      .gte('created_at', `${sevenDaysAgo}T00:00:00`)
 
-    const totalExpenses = expenses?.reduce((sum, e) => sum + e.amount, 0) || 0
+    const totalExpenses = expenses?.reduce((s, e) => s + e.amount, 0) || 0
 
     const { data: staff } = await supabase
       .from('users')
@@ -90,10 +89,10 @@ export default function AdminOverview() {
 
     const { data: stock } = await supabase
       .from('shift_stock')
-      .select('item_name, remaining_qty, opening_qty')
+      .select('remaining_qty, opening_qty')
       .eq('shift_date', today)
 
-    const lowStockItems = stock?.filter(s => (s.remaining_qty / s.opening_qty) * 100 < 20).length || 0
+    const lowStockItems = stock?.filter(s => s.opening_qty > 0 && (s.remaining_qty / s.opening_qty) * 100 < 20).length || 0
 
     const { data: activeShift } = await supabase
       .from('shift_sessions')
@@ -102,278 +101,223 @@ export default function AdminOverview() {
       .eq('status', 'open')
       .single()
 
-    const revenueByDay = last7Days.map(date => {
-      const dayOrders = orders?.filter(o => o.created_at?.startsWith(date)) || []
-      return {
-        date: date.slice(5),
-        revenue: dayOrders.reduce((sum, o) => sum + o.total, 0)
-      }
-    })
+    // Revenue by day
+    const revenueByDay = last7Days.map(date => ({
+      date: date.slice(5),
+      revenue: (orders || []).filter(o => o.created_at?.startsWith(date)).reduce((s, o) => s + o.total, 0)
+    }))
 
-    const cashRevenue = orders?.filter(o => o.payment_method === 'cash').reduce((sum, o) => sum + o.total, 0) || 0
-    const transferRevenue = orders?.filter(o => o.payment_method === 'transfer').reduce((sum, o) => sum + o.total, 0) || 0
-    const splitRevenue = orders?.filter(o => o.payment_method === 'split').reduce((sum, o) => sum + o.total, 0) || 0
-
+    // Payment method breakdown
+    const cashRev     = orders?.filter(o => o.payment_method === 'cash').reduce((s, o) => s + o.total, 0) || 0
+    const transferRev = orders?.filter(o => o.payment_method === 'transfer').reduce((s, o) => s + o.total, 0) || 0
+    const splitRev    = orders?.filter(o => o.payment_method === 'split').reduce((s, o) => s + o.total, 0) || 0
     const revenueByPaymentMethod = [
-      { name: 'Cash', value: cashRevenue },
-      { name: 'Transfer', value: transferRevenue },
-      { name: 'Split', value: splitRevenue },
+      { name: 'Cash', value: cashRev },
+      { name: 'Transfer', value: transferRev },
+      { name: 'Split', value: splitRev },
     ].filter(m => m.value > 0)
 
-    const itemSales: { [key: string]: number } = {}
+    // Top items
+    const itemSales: Record<string, number> = {}
     orders?.forEach(order => {
-      if (order.items_json) {
-        order.items_json.forEach((item: any) => {
-          itemSales[item.name] = (itemSales[item.name] || 0) + item.qty
-        })
-      }
+      order.items_json?.forEach((item: any) => {
+        itemSales[item.name] = (itemSales[item.name] || 0) + item.qty
+      })
     })
     const topSellingItems = Object.entries(itemSales)
       .map(([name, quantity]) => ({ name, quantity }))
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5)
 
-    const recentOrders = orders?.slice(0, 5).map(o => ({
-      id: o.id?.slice(-8) || 'unknown',
+    const recentOrders = (orders || []).slice(0, 5).map(o => ({
+      id: o.id?.slice(-8) || '—',
       total: o.total,
       payment_method: o.payment_method,
-      created_at: new Date(o.created_at).toLocaleTimeString()
-    })) || []
+      created_at: new Date(o.created_at).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })
+    }))
 
     setStats({
-      totalRevenue,
-      totalOrders: orders?.length || 0,
-      totalExpenses,
-      totalProfit: totalRevenue - totalExpenses,
-      activeStaff,
-      pendingApprovals,
-      lowStockItems,
+      totalRevenue, totalOrders: orders?.length || 0,
+      totalExpenses, totalProfit: totalRevenue - totalExpenses,
+      activeStaff, pendingApprovals, lowStockItems,
       activeShift: activeShift?.shifts || null,
-      recentOrders,
-      revenueByDay,
-      revenueByPaymentMethod,
-      topSellingItems
+      recentOrders, revenueByDay, revenueByPaymentMethod, topSellingItems
     })
-
     setLoading(false)
   }
 
-  const getLast7Days = () => {
-    const dates = []
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date()
-      date.setDate(date.getDate() - i)
-      dates.push(date.toISOString().split('T')[0])
-    }
-    return dates
-  }
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-        <p className="text-text-secondary mt-4">Loading dashboard...</p>
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="min-h-screen bg-bg-subtle p-6">
+
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text-primary">Business Overview</h1>
-        <p className="text-text-secondary">Welcome back, {session?.first_name}</p>
+        <h1 className="t-h1 text-text-primary">Business Overview</h1>
+        <p className="t-body text-text-secondary mt-1">Welcome back, {session?.first_name} · Last 7 days</p>
       </div>
 
+      {/* Active shift banner */}
       {stats.activeShift && (
-        <div className="bg-success/10 border border-success rounded-default p-4 mb-6 flex items-center justify-between">
+        <div className="card border-l-4 border-l-[#2E7D32] mb-6 flex items-center justify-between">
           <div>
-            <p className="font-semibold text-success">✅ Active Shift</p>
-            <p className="text-text-secondary text-sm">{stats.activeShift.name} shift is currently open</p>
+            <p className="t-label text-[#2E7D32] uppercase tracking-widest">Active Shift</p>
+            <p className="t-body text-text-primary mt-0.5">{stats.activeShift.name} shift is currently open</p>
           </div>
+          <div className="w-2 h-2 rounded-full bg-[#2E7D32] animate-pulse" />
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign size={24} className="text-success" />
-            <TrendingUp size={16} className="text-text-muted" />
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {[
+          { label: 'Total Revenue', value: `₦${stats.totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-[#2E7D32]' },
+          { label: 'Total Orders', value: stats.totalOrders, icon: ShoppingBag, color: 'text-primary' },
+          { label: 'Total Expenses', value: `₦${stats.totalExpenses.toLocaleString()}`, icon: TrendingDown, color: 'text-danger' },
+          { label: 'Net Profit', value: `₦${stats.totalProfit.toLocaleString()}`, icon: TrendingUp, color: stats.totalProfit >= 0 ? 'text-[#2E7D32]' : 'text-danger' },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="card">
+            <Icon size={20} className={`${color} mb-2`} />
+            <p className="t-small text-text-muted">{label}</p>
+            <p className={`t-h2 ${color} mt-1`}>{value}</p>
           </div>
-          <p className="text-text-secondary text-sm">Total Revenue</p>
-          <p className="text-2xl font-bold text-success">₦{stats.totalRevenue.toLocaleString()}</p>
-        </div>
-        
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <ShoppingBag size={24} className="text-primary" />
-          </div>
-          <p className="text-text-secondary text-sm">Total Orders</p>
-          <p className="text-2xl font-bold text-primary">{stats.totalOrders}</p>
-        </div>
-        
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <TrendingDown size={24} className="text-danger" />
-          </div>
-          <p className="text-text-secondary text-sm">Total Expenses</p>
-          <p className="text-2xl font-bold text-danger">₦{stats.totalExpenses.toLocaleString()}</p>
-        </div>
-        
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign size={24} className="text-info" />
-          </div>
-          <p className="text-text-secondary text-sm">Net Profit</p>
-          <p className={`text-2xl font-bold ${stats.totalProfit >= 0 ? 'text-success' : 'text-danger'}`}>
-            ₦{stats.totalProfit.toLocaleString()}
-          </p>
-        </div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="card text-center">
-          <Users size={20} className="mx-auto mb-1 text-text-secondary" />
-          <p className="text-2xl font-bold text-text-primary">{stats.activeStaff}</p>
-          <p className="text-text-secondary text-xs">Active Staff</p>
-        </div>
-        <div className="card text-center">
-          <AlertCircle size={20} className="mx-auto mb-1 text-warning" />
-          <p className="text-2xl font-bold text-warning">{stats.pendingApprovals}</p>
-          <p className="text-text-secondary text-xs">Pending Approvals</p>
-        </div>
-        <div className="card text-center">
-          <Package size={20} className="mx-auto mb-1 text-danger" />
-          <p className="text-2xl font-bold text-danger">{stats.lowStockItems}</p>
-          <p className="text-text-secondary text-xs">Low Stock Items</p>
-        </div>
+      {/* Secondary cards */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        {[
+          { label: 'Active Staff', value: stats.activeStaff, icon: Users, color: 'text-text-primary' },
+          { label: 'Pending Approvals', value: stats.pendingApprovals, icon: AlertCircle, color: 'text-[#E65100]' },
+          { label: 'Low Stock Items', value: stats.lowStockItems, icon: Package, color: 'text-danger' },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="card text-center">
+            <Icon size={18} className={`mx-auto mb-1 ${color}`} />
+            <p className={`t-h2 ${color}`}>{value}</p>
+            <p className="t-small text-text-muted mt-0.5">{label}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <div className="card">
-          <h3 className="font-bold text-text-primary mb-4">Revenue Trend (Last 7 Days)</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <p className="t-h3 text-text-primary mb-4">Revenue Trend</p>
+          <ResponsiveContainer width="100%" height={220}>
             <LineChart data={stats.revenueByDay}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
-              <XAxis dataKey="date" stroke="#616161" />
-              <YAxis stroke="#616161" />
-              <Tooltip 
-                formatter={(value) => [`₦${Number(value).toLocaleString()}`, 'Revenue']}
-                contentStyle={{ backgroundColor: 'white', borderRadius: 8, border: '1px solid #E0E0E0' }}
+              <XAxis dataKey="date" stroke="#9E9E9E" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#9E9E9E" tick={{ fontSize: 11 }} />
+              <Tooltip
+                formatter={(v) => [`₦${Number(v).toLocaleString()}`, 'Revenue']}
+                contentStyle={{ backgroundColor: 'white', borderRadius: 8, border: '1px solid #E0E0E0', fontSize: 12 }}
               />
-              <Line type="monotone" dataKey="revenue" stroke="#8B0000" strokeWidth={2} dot={{ fill: '#8B0000' }} />
+              <Line type="monotone" dataKey="revenue" stroke="#8B0000" strokeWidth={2} dot={{ fill: '#8B0000', r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
         <div className="card">
-          <h3 className="font-bold text-text-primary mb-4">Revenue by Payment Method</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={stats.revenueByPaymentMethod}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {stats.revenueByPaymentMethod.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => `₦${Number(value).toLocaleString()}`} />
-            </PieChart>
-          </ResponsiveContainer>
+          <p className="t-h3 text-text-primary mb-4">Payment Methods</p>
+          {stats.revenueByPaymentMethod.length === 0 ? (
+            <div className="flex items-center justify-center h-[220px]">
+              <p className="t-body text-text-muted">No orders yet</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={stats.revenueByPaymentMethod}
+                  cx="50%" cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : 0}%`}
+                  outerRadius={80}
+                  dataKey="value"
+                >
+                  {stats.revenueByPaymentMethod.map((_, index) => (
+                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => `₦${Number(v).toLocaleString()}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Top items + Recent orders */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <div className="card">
-          <h3 className="font-bold text-text-primary mb-4">🏆 Top Selling Items</h3>
-          <div className="space-y-3">
-            {stats.topSellingItems.length === 0 ? (
-              <p className="text-text-muted text-center py-4">No orders yet</p>
-            ) : (
-              stats.topSellingItems.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl font-bold text-text-muted w-6">#{idx + 1}</span>
-                    <span className="font-medium text-text-primary">{item.name}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="w-32 bg-bg-subtle rounded-full h-2">
-                      <div 
-                        className="bg-primary h-2 rounded-full"
-                        style={{ width: `${Math.min(100, (item.quantity / (stats.topSellingItems[0]?.quantity || 1)) * 100)}%` }}
+          <p className="t-h3 text-text-primary mb-4">Top Selling Items</p>
+          {stats.topSellingItems.length === 0 ? (
+            <p className="t-body text-text-muted text-center py-6">No orders yet</p>
+          ) : (
+            <div className="space-y-3">
+              {stats.topSellingItems.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-3">
+                  <span className="t-small text-text-muted w-4">{idx + 1}</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between mb-1">
+                      <p className="t-body text-text-primary">{item.name}</p>
+                      <p className="t-mono text-text-secondary">{item.quantity}</p>
+                    </div>
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill progress-fill-high"
+                        style={{ width: `${(item.quantity / (stats.topSellingItems[0]?.quantity || 1)) * 100}%` }}
                       />
                     </div>
-                    <span className="font-mono text-text-secondary">{item.quantity} sold</span>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="card">
-          <h3 className="font-bold text-text-primary mb-4">📋 Recent Orders</h3>
-          <div className="space-y-2">
-            {stats.recentOrders.length === 0 ? (
-              <p className="text-text-muted text-center py-4">No orders yet</p>
-            ) : (
-              stats.recentOrders.map((order) => (
+          <p className="t-h3 text-text-primary mb-4">Recent Orders</p>
+          {stats.recentOrders.length === 0 ? (
+            <p className="t-body text-text-muted text-center py-6">No orders yet</p>
+          ) : (
+            <div className="space-y-2">
+              {stats.recentOrders.map((order) => (
                 <div key={order.id} className="flex justify-between items-center py-2 border-b border-border">
                   <div>
-                    <p className="font-mono text-xs text-text-muted">#{order.id}</p>
-                    <p className="text-text-secondary text-sm">{order.created_at}</p>
+                    <p className="t-mono text-text-muted">#{order.id}</p>
+                    <p className="t-small text-text-secondary">{order.created_at}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-text-primary">₦{order.total.toLocaleString()}</p>
-                    <p className="text-xs capitalize text-text-muted">{order.payment_method}</p>
+                    <p className="t-body text-text-primary font-medium">₦{order.total.toLocaleString()}</p>
+                    <p className="t-small text-text-muted capitalize">{order.payment_method}</p>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-        <button 
-          onClick={() => router.push('/admin/staff')}
-          className="card hover:shadow-md transition-all text-left"
-        >
-          <Users size={24} className="text-primary mb-2" />
-          <p className="font-semibold text-text-primary">Staff Management</p>
-          <p className="text-text-secondary text-xs">Approve pending accounts</p>
-        </button>
-        <button 
-          onClick={() => router.push('/admin/menu')}
-          className="card hover:shadow-md transition-all text-left"
-        >
-          <Package size={24} className="text-primary mb-2" />
-          <p className="font-semibold text-text-primary">Menu Items</p>
-          <p className="text-text-secondary text-xs">Add or edit items</p>
-        </button>
-        <button 
-          onClick={() => router.push('/admin/reports')}
-          className="card hover:shadow-md transition-all text-left"
-        >
-          <TrendingUp size={24} className="text-primary mb-2" />
-          <p className="font-semibold text-text-primary">Reports</p>
-          <p className="text-text-secondary text-xs">Export data</p>
-        </button>
-        <button 
-          onClick={() => router.push('/admin/settings')}
-          className="card hover:shadow-md transition-all text-left"
-        >
-          <Calendar size={24} className="text-primary mb-2" />
-          <p className="font-semibold text-text-primary">Settings</p>
-          <p className="text-text-secondary text-xs">Configure thresholds</p>
-        </button>
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Staff', sub: 'Approve accounts', icon: Users, path: '/admin/staff' },
+          { label: 'Menu', sub: 'Add or edit items', icon: Package, path: '/admin/menu' },
+          { label: 'Reports', sub: 'Export data', icon: TrendingUp, path: '/admin/reports' },
+          { label: 'Settings', sub: 'Configure thresholds', icon: AlertCircle, path: '/admin/settings' },
+        ].map(({ label, sub, icon: Icon, path }) => (
+          <button key={path} onClick={() => router.push(path)} className="card text-left hover:border-primary/40 transition-colors">
+            <Icon size={20} className="text-primary mb-2" />
+            <p className="t-body text-text-primary font-medium">{label}</p>
+            <p className="t-small text-text-muted mt-0.5">{sub}</p>
+          </button>
+        ))}
       </div>
+
     </div>
   )
 }

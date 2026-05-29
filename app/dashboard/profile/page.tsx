@@ -26,61 +26,32 @@ type UserProfile = {
 export default function ProfilePage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [stats, setStats] = useState({
-    totalOrders: 0,
-    totalRevenue: 0,
-    shiftsWorked: 0
-  })
+  const [stats, setStats] = useState({ totalOrders: 0, totalRevenue: 0, shiftsWorked: 0 })
 
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
       router.push('/auth/login')
     } else {
-      setSession(userSession)
       fetchProfile(userSession.id)
       fetchUserStats(userSession.id)
     }
   }, [router])
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-
-    if (!error && data) {
-      setProfile(data)
-    }
+    const { data } = await supabase.from('users').select('*').eq('id', userId).single()
+    if (data) setProfile(data)
     setLoading(false)
   }
 
   const fetchUserStats = async (userId: string) => {
-    // Get orders count and revenue
-    const { data: orders } = await supabase
-      .from('orders')
-      .select('total')
-      .eq('staff_id', userId)
-
-    const totalOrders = orders?.length || 0
-    const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
-
-    // Get shifts worked (distinct shift dates where user had activity)
-    const { data: activities } = await supabase
-      .from('shift_activities')
-      .select('shift_date')
-      .eq('staff_id', userId)
-
-    const uniqueShifts = new Set(activities?.map(a => a.shift_date))
-    const shiftsWorked = uniqueShifts.size
-
+    const { data: orders } = await supabase.from('orders').select('total').eq('staff_id', userId)
+    const { data: activities } = await supabase.from('shift_activities').select('shift_date').eq('staff_id', userId)
     setStats({
-      totalOrders,
-      totalRevenue,
-      shiftsWorked
+      totalOrders: orders?.length || 0,
+      totalRevenue: orders?.reduce((s, o) => s + o.total, 0) || 0,
+      shiftsWorked: new Set(activities?.map(a => a.shift_date)).size
     })
   }
 
@@ -89,168 +60,120 @@ export default function ProfilePage() {
     router.push('/auth/login')
   }
 
-  const getRoleBadge = (role: string) => {
-    if (role === 'admin') {
-      return <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-semibold">Administrator</span>
-    }
-    return <span className="bg-info/10 text-info px-3 py-1 rounded-full text-sm font-semibold">Staff</span>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <span className="bg-success/10 text-success px-3 py-1 rounded-full text-sm font-semibold">Active</span>
-      case 'pending':
-        return <span className="bg-warning/10 text-warning px-3 py-1 rounded-full text-sm font-semibold">Pending</span>
-      case 'declined':
-        return <span className="bg-danger/10 text-danger px-3 py-1 rounded-full text-sm font-semibold">Declined</span>
-      default:
-        return <span className="bg-text-muted/10 text-text-muted px-3 py-1 rounded-full text-sm font-semibold">{status}</span>
-    }
-  }
-
-  if (loading) return <div className="p-6">Loading...</div>
-
-  if (!profile) return <div className="p-6">Profile not found</div>
+  if (!profile) return null
 
   return (
-    <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4">
-        {/* Profile Header */}
-        <div className="card mb-4 text-center bg-primary text-white border-none">
-          <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
-            <User size={40} className="text-white" />
+    <div className="min-h-screen bg-bg-subtle pb-24">
+      <div className="p-4 space-y-4">
+
+        {/* Profile header */}
+        <div className="bg-primary rounded-[10px] p-5 text-white text-center">
+          <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <User size={32} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold">{profile.first_name} {profile.surname}</h1>
-          <p className="text-white/80 text-sm">{profile.email}</p>
+          <h1 className="t-h2 text-white">{profile.first_name} {profile.surname}</h1>
+          <p className="t-small text-white/70 mt-0.5">{profile.email}</p>
           <div className="flex justify-center gap-2 mt-3">
-            {getRoleBadge(profile.role)}
-            {getStatusBadge(profile.status)}
+            <span className={`px-3 py-1 rounded-full t-small font-medium ${
+              profile.role === 'admin' ? 'bg-white/20 text-white' : 'bg-white/10 text-white/80'
+            }`}>
+              {profile.role === 'admin' ? 'Administrator' : 'Staff'}
+            </span>
+            <span className="bg-[#2E7D32]/30 text-white px-3 py-1 rounded-full t-small font-medium capitalize">
+              {profile.status}
+            </span>
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Orders Taken</p>
-            <p className="text-2xl font-bold text-primary">{stats.totalOrders}</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Revenue Generated</p>
-            <p className="text-2xl font-bold text-success">₦{stats.totalRevenue.toLocaleString()}</p>
-          </div>
-          <div className="card text-center">
-            <p className="text-text-secondary text-xs">Shifts Worked</p>
-            <p className="text-2xl font-bold text-info">{stats.shiftsWorked}</p>
-          </div>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Orders', value: stats.totalOrders, color: 'text-primary' },
+            { label: 'Revenue', value: `₦${stats.totalRevenue.toLocaleString()}`, color: 'text-[#2E7D32]' },
+            { label: 'Shifts', value: stats.shiftsWorked, color: 'text-[#1565C0]' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="card text-center">
+              <p className="t-small text-text-muted">{label}</p>
+              <p className={`t-h2 ${color} mt-1`}>{value}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Personal Information */}
-        <div className="card mb-4">
-          <h2 className="font-bold text-text-primary mb-3 flex items-center gap-2">
-            <User size={18} />
-            Personal Information
-          </h2>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-text-secondary">Full Name</span>
-              <span className="font-medium">{profile.first_name} {profile.surname}</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-text-secondary flex items-center gap-2">
-                <Mail size={14} />
-                Email
-              </span>
-              <span>{profile.email}</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-text-secondary flex items-center gap-2">
-                <Phone size={14} />
-                Phone
-              </span>
-              <span>{profile.phone}</span>
-            </div>
-            {profile.additional_phone && (
-              <div className="flex justify-between items-center py-2 border-b border-border">
-                <span className="text-text-secondary">Additional Phone</span>
-                <span>{profile.additional_phone}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-text-secondary flex items-center gap-2">
-                <GraduationCap size={14} />
-                Student
-              </span>
-              <span>{profile.is_student ? 'Yes' : 'No'}</span>
-            </div>
+        {/* Personal info */}
+        <div className="card space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <User size={16} className="text-text-muted" />
+            <p className="t-h3 text-text-primary">Personal Information</p>
           </div>
+          {[
+            { label: 'Full Name', value: `${profile.first_name} ${profile.surname}` },
+            { label: 'Email', value: profile.email },
+            { label: 'Phone', value: profile.phone },
+            profile.additional_phone ? { label: 'Additional Phone', value: profile.additional_phone } : null,
+            { label: 'Student', value: profile.is_student ? 'Yes' : 'No' },
+          ].filter(Boolean).map((item: any) => (
+            <div key={item.label} className="flex justify-between items-center py-2 border-b border-border last:border-0">
+              <p className="t-small text-text-muted">{item.label}</p>
+              <p className="t-body text-text-primary">{item.value}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Location Information */}
+        {/* Location */}
         {(profile.state || profile.city || profile.address) && (
-          <div className="card mb-4">
-            <h2 className="font-bold text-text-primary mb-3 flex items-center gap-2">
-              <MapPin size={18} />
-              Location
-            </h2>
-            <div className="space-y-3">
-              {profile.state && (
-                <div className="flex justify-between items-center py-2 border-b border-border">
-                  <span className="text-text-secondary">State</span>
-                  <span>{profile.state}</span>
-                </div>
-              )}
-              {profile.city && (
-                <div className="flex justify-between items-center py-2 border-b border-border">
-                  <span className="text-text-secondary">City</span>
-                  <span>{profile.city}</span>
-                </div>
-              )}
-              {profile.address && (
-                <div className="flex justify-between items-center py-2 border-b border-border">
-                  <span className="text-text-secondary">Address</span>
-                  <span className="text-right">{profile.address}</span>
-                </div>
-              )}
+          <div className="card space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <MapPin size={16} className="text-text-muted" />
+              <p className="t-h3 text-text-primary">Location</p>
             </div>
+            {[
+              profile.state   ? { label: 'State',   value: profile.state }   : null,
+              profile.city    ? { label: 'City',    value: profile.city }    : null,
+              profile.address ? { label: 'Address', value: profile.address } : null,
+            ].filter(Boolean).map((item: any) => (
+              <div key={item.label} className="flex justify-between items-center py-2 border-b border-border last:border-0">
+                <p className="t-small text-text-muted">{item.label}</p>
+                <p className="t-body text-text-primary text-right">{item.value}</p>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Account Information */}
-        <div className="card mb-4">
-          <h2 className="font-bold text-text-primary mb-3 flex items-center gap-2">
-            <Calendar size={18} />
-            Account Information
-          </h2>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center py-2 border-b border-border">
-              <span className="text-text-secondary">Member Since</span>
-              <span>{new Date(profile.created_at).toLocaleDateString()}</span>
-            </div>
-            {profile.approved_at && (
-              <div className="flex justify-between items-center py-2 border-b border-border">
-                <span className="text-text-secondary">Approved On</span>
-                <span>{new Date(profile.approved_at).toLocaleDateString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-center py-2">
-              <span className="text-text-secondary flex items-center gap-2">
-                <Shield size={14} />
-                Role
-              </span>
-              <span className="capitalize">{profile.role}</span>
-            </div>
+        {/* Account info */}
+        <div className="card space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar size={16} className="text-text-muted" />
+            <p className="t-h3 text-text-primary">Account</p>
           </div>
+          {[
+            { label: 'Member Since', value: new Date(profile.created_at).toLocaleDateString('en-NG') },
+            profile.approved_at ? { label: 'Approved On', value: new Date(profile.approved_at).toLocaleDateString('en-NG') } : null,
+            { label: 'Role', value: profile.role, icon: Shield },
+          ].filter(Boolean).map((item: any) => (
+            <div key={item.label} className="flex justify-between items-center py-2 border-b border-border last:border-0">
+              <p className="t-small text-text-muted capitalize">{item.label}</p>
+              <p className="t-body text-text-primary capitalize">{item.value}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Logout Button */}
+        {/* Logout */}
         <button
           onClick={handleLogout}
-          className="btn-secondary w-full flex items-center justify-center gap-2 text-danger border-danger/30 hover:bg-danger/10"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-[10px] border border-danger/30 text-danger hover:bg-danger/5 transition-colors t-label"
         >
-          <LogOut size={18} />
+          <LogOut size={16} />
           Sign Out
         </button>
+
       </div>
     </div>
   )

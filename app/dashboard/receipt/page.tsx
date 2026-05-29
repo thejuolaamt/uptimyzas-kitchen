@@ -1,4 +1,3 @@
-// app/dashboard/receipt/page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -18,44 +17,71 @@ export default function ReceiptPage() {
     }
   }, [router])
 
-  if (!order) return <div className="p-6">Loading...</div>
+  if (!order) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
-      <div className="card max-w-md w-full text-center">
-        <div className="text-success mb-4">
-          <CheckCircle size={64} className="mx-auto" />
-        </div>
-        
-        <h1 className="text-2xl font-bold text-text-primary mb-2">Order Confirmed!</h1>
-        <p className="text-text-secondary mb-6">Order #{order.orderId.slice(-8)}</p>
+      <div className="card max-w-sm w-full">
 
-        <div className="border-t border-border pt-4 mb-4">
+        {/* Success icon */}
+        <div className="text-center mb-5">
+          <div className="w-16 h-16 rounded-full bg-[#2E7D32]/10 flex items-center justify-center mx-auto mb-3">
+            <CheckCircle size={36} className="text-[#2E7D32]" />
+          </div>
+          <h1 className="t-h1 text-text-primary">Order Confirmed</h1>
+          <p className="t-small text-text-muted mt-1">#{order.orderId.slice(-8)}</p>
+        </div>
+
+        {/* Items */}
+        <div className="border-t border-border pt-4 mb-4 space-y-2">
           {order.items.map((item: any, idx: number) => (
-            <div key={idx} className="flex justify-between text-sm py-1">
-              <span>{item.quantity}× {item.name}</span>
-              <span>₦{(item.price * item.quantity).toLocaleString()}</span>
+            <div key={idx} className="flex justify-between">
+              <p className="t-body text-text-secondary">{item.quantity}× {item.name}</p>
+              <p className="t-mono text-text-primary">₦{(item.price * item.quantity).toLocaleString()}</p>
             </div>
           ))}
-          <div className="border-t border-border mt-2 pt-2 flex justify-between font-bold">
-            <span>Total</span>
-            <span>₦{order.total.toLocaleString()}</span>
+          <div className="border-t border-border pt-3 flex justify-between">
+            <p className="t-h3 text-text-primary">Total</p>
+            <p className="t-h2 text-primary">₦{order.total.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="bg-bg-subtle rounded-default p-3 mb-6 text-left">
-          <p className="text-sm"><strong>Payment:</strong> {order.paymentMethod}</p>
-          {order.cashAmount > 0 && <p className="text-sm"><strong>Cash:</strong> ₦{order.cashAmount.toLocaleString()}</p>}
-          {order.transferAmount > 0 && <p className="text-sm"><strong>Transfer:</strong> ₦{order.transferAmount.toLocaleString()}</p>}
-          {order.changeGiven > 0 && <p className="text-sm text-success"><strong>Change:</strong> ₦{order.changeGiven.toLocaleString()}</p>}
+        {/* Payment summary */}
+        <div className="bg-bg-subtle rounded-[10px] p-3 mb-5 space-y-1.5">
+          <div className="flex justify-between">
+            <p className="t-small text-text-muted">Payment method</p>
+            <p className="t-label text-text-primary capitalize">{order.paymentMethod}</p>
+          </div>
+          {order.cashAmount > 0 && (
+            <div className="flex justify-between">
+              <p className="t-small text-text-muted">Cash</p>
+              <p className="t-mono text-text-primary">₦{order.cashAmount.toLocaleString()}</p>
+            </div>
+          )}
+          {order.transferAmount > 0 && (
+            <div className="flex justify-between">
+              <p className="t-small text-text-muted">Transfer</p>
+              <p className="t-mono text-text-primary">₦{order.transferAmount.toLocaleString()}</p>
+            </div>
+          )}
+          {order.changeGiven > 0 && (
+            <div className="flex justify-between">
+              <p className="t-small text-text-muted">Change</p>
+              <p className="t-mono text-[#2E7D32] font-medium">₦{order.changeGiven.toLocaleString()}</p>
+            </div>
+          )}
         </div>
 
-        <button
-          onClick={() => router.push('/dashboard/orders')}
-          className="btn-primary w-full"
-        >
+        <button onClick={() => router.push('/dashboard/orders')} className="btn-primary w-full">
           New Order
         </button>
+
       </div>
     </div>
   )
