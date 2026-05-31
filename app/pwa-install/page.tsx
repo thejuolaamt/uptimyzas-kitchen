@@ -7,31 +7,24 @@ export default function PWAInstall() {
   const [showInstall, setShowInstall] = useState(false)
 
   useEffect(() => {
-    // Register service worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('ServiceWorker registered:', registration)
-        })
-        .catch(error => {
-          console.log('ServiceWorker registration failed:', error)
-        })
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
 
-    // Listen for beforeinstallprompt event
-    window.addEventListener('beforeinstallprompt', (e) => {
+    const handler = (e: any) => {
       e.preventDefault()
       setDeferredPrompt(e)
       setShowInstall(true)
-    })
+    }
+
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
   const handleInstall = async () => {
     if (!deferredPrompt) return
-    
     deferredPrompt.prompt()
-    const { outcome } = await deferredPrompt.userChoice
-    console.log(`User response: ${outcome}`)
+    await deferredPrompt.userChoice
     setDeferredPrompt(null)
     setShowInstall(false)
   }
@@ -40,10 +33,10 @@ export default function PWAInstall() {
 
   return (
     <div className="fixed bottom-20 left-4 right-4 z-50">
-      <div className="bg-white rounded-lg shadow-lg p-4 border border-border flex items-center justify-between">
+      <div className="bg-white rounded-[10px] border border-border p-4 flex items-center justify-between">
         <div>
-          <p className="font-semibold text-text-primary">Install App</p>
-          <p className="text-text-secondary text-sm">Install for faster access</p>
+          <p className="t-body font-medium text-text-primary">Install App</p>
+          <p className="t-small text-text-secondary">Add to home screen for faster access</p>
         </div>
         <button onClick={handleInstall} className="btn-primary py-2 px-4">
           Install

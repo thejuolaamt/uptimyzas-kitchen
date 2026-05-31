@@ -1,15 +1,16 @@
-// app/auth/login/page.tsx
 'use client'
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { signIn } from '@/lib/auth'
 import Link from 'next/link'
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -19,7 +20,7 @@ export default function LoginPage() {
     setLoading(true)
 
     const result = await signIn(email, password)
-    
+
     if (result.success && result.session) {
       if (result.session.role === 'admin') {
         router.push('/admin')
@@ -33,55 +34,80 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-primary">
-      <div className="bg-white rounded-[10px] p-8 max-w-md w-full mx-4 border border-border">
-        <div className="text-center mb-8">
-          <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
-          <p className="t-small mt-2 tracking-widest uppercase text-text-muted">Restaurant Management System</p>
-          <p className="t-body text-text-secondary mt-5">Sign in to your account</p>
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="min-h-screen bg-white flex flex-col">
+
+      {/* Top brand section */}
+      <div className="bg-primary px-6 pt-16 pb-10">
+        <h1 className="t-brand text-white">Uptimyzas Kitchen</h1>
+        <p className="t-small text-white/60 mt-2 tracking-widest uppercase">
+          Restaurant Management System
+        </p>
+      </div>
+
+      {/* Form section */}
+      <div className="flex-1 px-6 pt-8 pb-10">
+        <h2 className="t-h1 text-text-primary mb-1">Welcome back</h2>
+        <p className="t-body text-text-secondary mb-8">Sign in to your account to continue</p>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-text-primary font-medium text-sm mb-1">Email</label>
+            <label className="block t-label text-text-primary mb-2">Email address</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="input-base"
+              placeholder="you@example.com"
+              autoComplete="email"
               required
             />
           </div>
 
           <div>
-            <label className="block text-text-primary font-medium text-sm mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-base"
-              required
-            />
+            <label className="block t-label text-text-primary mb-2">Password</label>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input-base pr-12"
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           {error && (
-            <div className="bg-danger/10 border border-danger rounded-[10px] p-3">
-              <p className="text-danger text-sm">{error}</p>
+            <div className="bg-danger/10 border border-danger/30 rounded-[10px] p-3">
+              <p className="text-danger t-small">{error}</p>
             </div>
           )}
 
-          <button type="submit" disabled={loading} className="btn-primary w-full">
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full mt-2"
+          >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
-        <p className="text-center text-text-secondary text-sm mt-6">
+        <p className="t-body text-text-secondary text-center mt-8">
           Don't have an account?{' '}
-          <Link href="/auth/signup" className="text-primary font-semibold hover:underline">
-            Sign up
+          <Link href="/auth/signup" className="text-primary font-semibold">
+            Create account
           </Link>
         </p>
       </div>
+
     </div>
   )
 }
