@@ -3,8 +3,10 @@
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, Users, X, Utensils, Clock,
-  Package, FileText, MessageCircle, Settings, LogOut, Menu
+  LayoutDashboard, Users, X,
+  Utensils, Clock, Package,
+  FileText, MessageCircle,
+  Settings, LogOut, Menu
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
 
@@ -31,11 +33,14 @@ export default function AdminLayout({
     { name: 'Settings',   icon: Settings,      path: '/admin/settings' },
   ]
 
-  const allPaths = [...bottomNav, ...drawerItems]
+  const allItems = [...bottomNav, ...drawerItems]
 
   const getPageTitle = () => {
-    return allPaths.find(i => i.path === pathname)?.name || 'Admin'
+    if (pathname === '/admin') return null
+    return allItems.find(i => i.path === pathname)?.name || 'Admin'
   }
+
+  const pageTitle = getPageTitle()
 
   const navigate = (path: string) => {
     setMenuOpen(false)
@@ -51,41 +56,45 @@ export default function AdminLayout({
     <div className="min-h-screen bg-bg-subtle">
 
       {/* Top bar */}
-      {pathname === '/admin' ? (
-        <div className="top-bar">
-          <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
-          <p className="t-small text-text-muted uppercase tracking-widest">Admin</p>
-        </div>
-      ) : (
-        <div className="top-bar">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-text-secondary min-h-0 min-w-0"
-          >
-            <span className="text-lg">←</span>
-          </button>
-          <p className="t-h3 text-text-primary">{getPageTitle()}</p>
-          <div className="w-6" />
-        </div>
-      )}
+      <div className="top-bar">
+        {pageTitle ? (
+          <>
+            <button
+              onClick={() => router.back()}
+              className="flex items-center justify-center w-9 h-9 min-h-0 min-w-0 rounded-full hover:bg-bg-subtle transition-colors text-text-secondary"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <p className="t-h3 text-text-primary">{pageTitle}</p>
+            <div className="w-9" />
+          </>
+        ) : (
+          <>
+            <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
+            <span className="t-small text-text-muted uppercase tracking-widest">Admin</span>
+          </>
+        )}
+      </div>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex pt-14">
         <div className="w-56 bg-white border-r border-border min-h-screen flex flex-col fixed top-14 left-0 bottom-0">
           <div className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-            {[...bottomNav, ...drawerItems].map(({ name, icon: Icon, path }) => {
+            {allItems.map(({ name, icon: Icon, path }) => {
               const isActive = pathname === path
               return (
                 <button
                   key={path}
                   onClick={() => navigate(path)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] transition-colors min-h-0 ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] transition-colors min-h-0 ${
                     isActive
                       ? 'bg-primary/10 text-primary'
                       : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary'
                   }`}
                 >
-                  <Icon size={18} />
+                  <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
                   <span className="t-body font-medium">{name}</span>
                 </button>
               )
@@ -94,14 +103,14 @@ export default function AdminLayout({
           <div className="px-3 pb-6 border-t border-border pt-3">
             <button
               onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-danger hover:bg-danger/10 transition-colors min-h-0"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-danger hover:bg-danger/5 transition-colors min-h-0"
             >
               <LogOut size={18} />
               <span className="t-body font-medium">Sign Out</span>
             </button>
           </div>
         </div>
-        <div className="flex-1 ml-56">
+        <div className="flex-1 ml-56 min-w-0">
           {children}
         </div>
       </div>
@@ -119,14 +128,14 @@ export default function AdminLayout({
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-6 transition-colors relative ${
-                isActive ? 'text-primary' : 'text-text-secondary'
+              className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-8 pb-1 pt-2 relative transition-colors ${
+                isActive ? 'text-primary' : 'text-text-muted'
               }`}
             >
               {isActive && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-primary" />
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-primary" />
               )}
-              <Icon size={22} />
+              <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
               <span className="text-[10px] font-medium">{name}</span>
             </button>
           )
@@ -134,11 +143,14 @@ export default function AdminLayout({
 
         <button
           onClick={() => setMenuOpen(true)}
-          className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-6 transition-colors ${
-            menuOpen ? 'text-primary' : 'text-text-secondary'
+          className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-8 pb-1 pt-2 relative transition-colors ${
+            drawerItems.some(i => i.path === pathname) ? 'text-primary' : 'text-text-muted'
           }`}
         >
-          <Menu size={22} />
+          {drawerItems.some(i => i.path === pathname) && (
+            <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-primary" />
+          )}
+          <Menu size={22} strokeWidth={1.8} />
           <span className="text-[10px] font-medium">More</span>
         </button>
       </div>
@@ -146,49 +158,51 @@ export default function AdminLayout({
       {/* Drawer overlay */}
       {menuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
           onClick={() => setMenuOpen(false)}
         />
       )}
 
       {/* Drawer */}
-      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[24px] transition-transform duration-300 ${
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[24px] transition-transform duration-300 ease-out ${
         menuOpen ? 'translate-y-0' : 'translate-y-full'
       }`}>
-        <div className="w-10 h-1 rounded-full bg-border mx-auto mt-4 mb-2" />
+        <div className="w-10 h-1 rounded-full bg-border mx-auto mt-3 mb-1" />
 
         <div className="flex justify-between items-center px-5 py-3 border-b border-border">
           <p className="t-h3 text-text-primary">Admin Menu</p>
           <button
             onClick={() => setMenuOpen(false)}
-            className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center"
+            className="text-text-muted min-h-0 min-w-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-bg-subtle"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-4 py-3 grid grid-cols-3 gap-2">
+        <div className="px-4 py-4 grid grid-cols-3 gap-2">
           {drawerItems.map(({ name, icon: Icon, path }) => {
             const isActive = pathname === path
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`flex flex-col items-center gap-2 p-4 rounded-[12px] transition-colors ${
-                  isActive ? 'bg-primary/10 text-primary' : 'bg-bg-subtle text-text-secondary'
+                className={`flex flex-col items-center gap-2 py-4 rounded-[14px] transition-colors min-h-0 ${
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'bg-bg-subtle text-text-secondary hover:bg-border'
                 }`}
               >
-                <Icon size={22} />
-                <span className="t-small font-medium text-center">{name}</span>
+                <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+                <span className="t-small font-medium">{name}</span>
               </button>
             )
           })}
         </div>
 
-        <div className="px-4 pb-6 pt-2 border-t border-border mx-4 mt-2">
+        <div className="px-5 pb-8 pt-1">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-[10px] text-danger border border-danger/20 t-label"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-[12px] text-danger border border-danger/20 t-label hover:bg-danger/5 transition-colors"
           >
             <LogOut size={16} />
             Sign Out
