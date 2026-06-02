@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import { Banknote, Smartphone, ArrowLeftRight } from 'lucide-react'
 
 type CartItem = {
   id: string
@@ -14,9 +15,15 @@ type CartItem = {
   unit: string
 }
 
+const PAYMENT_METHODS = [
+  { key: 'cash',     label: 'Cash',     icon: Banknote       },
+  { key: 'transfer', label: 'Transfer', icon: Smartphone     },
+  { key: 'split',    label: 'Split',    icon: ArrowLeftRight },
+] as const
+
 export default function PaymentPage() {
   const router = useRouter()
-  const toast = useToast()
+  const toast  = useToast()
   const [loading, setLoading] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -30,17 +37,17 @@ export default function PaymentPage() {
     const userSession = getSession()
     if (!userSession) {
       router.push('/auth/login')
-    } else {
-      setSession(userSession)
-      loadCart()
-      checkActiveShift()
+      return
     }
+    setSession(userSession)
+    loadCart()
+    checkActiveShift()
   }, [router])
 
   const loadCart = () => {
-    const savedCart = localStorage.getItem('current_order_cart')
-    if (savedCart) {
-      setCart(JSON.parse(savedCart))
+    const saved = localStorage.getItem('current_order_cart')
+    if (saved) {
+      setCart(JSON.parse(saved))
     } else {
       router.push('/dashboard/orders')
     }
@@ -66,7 +73,7 @@ export default function PaymentPage() {
   const checkStockAvailability = async () => {
     const today = new Date().toISOString().split('T')[0]
     for (const item of cart) {
-      const { data: stockData, error } = await supabase
+      const { data, error } = await supabase
         .from('shift_stock')
         .select('remaining_qty')
         .eq('shift_date', today)
@@ -74,84 +81,87 @@ export default function PaymentPage() {
         .eq('item_id', item.id)
         .single()
 
-      if (error || !stockData) {
+      if (error || !data) {
         toast(`Error checking stock for ${item.name}`, 'error')
         return false
       }
-      if (stockData.remaining_qty < item.quantity) {
-        toast(`${item.name}: Only ${stockData.remaining_qty} ${item.unit}(s) available. You ordered ${item.quantity}.`, 'warning')
+      if (data.remaining_qty < item.quantity) {
+        toast(
+          `${item.name}: only ${data.remaining_qty} ${item.unit}(s) left. You ordered ${item.quantity}.`,
+          'warning'
+        )
         return false
       }
     }
     return true
   }
 
-  const getTotal = () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0)
-  const getChange = () => {
-    const received = parseFloat(amountReceived)
-    return isNaN(received) ? 0 : received - getTotal()
-  }
+  const total     = cart.reduce((s, i) => s + i.price * i.quantity, 0)
+  const change    = parseFloat(amountReceived) - total
+  const splitSum  = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
+  const splitOk   = splitSum === total
+  const splitDiff = total - splitSum
 
   const handleConfirmOrder = async () => {
     if (!activeShift) {
       toast('No active shift found', 'error')
-      router.push('/dashboard')
       return
     }
 
-    const stockAvailable = await checkStockAvailability()
-    if (!stockAvailable) return
-
-    setLoading(true)
-    const total = getTotal()
-    const today = new Date().toISOString().split('T')[0]
-
-    let cashAmt = 0
-    let transferAmt = 0
-    let changeGiven = 0
-
+    // Validate payment inputs
     if (paymentMethod === 'cash') {
       const received = parseFloat(amountReceived)
-      if (received < total) {
-        toast('Insufficient amount received', 'warning')
-        setLoading(false)
-        return
-      }
-      cashAmt = total
-      changeGiven = received - total
-    } else if (paymentMethod === 'transfer') {
-      transferAmt = total
-    } else if (paymentMethod === 'split') {
-      cashAmt = parseFloat(cashAmount) || 0
-      transferAmt = parseFloat(transferAmount) || 0
-      if (cashAmt + transferAmt !== total) {
-        toast('Cash + Transfer must equal total amount', 'warning')
-        setLoading(false)
+      if (isNaN(received) || received < total) {
+        toast('Amount received is less than total', 'warning')
         return
       }
     }
+    if (paymentMethod === 'split' && !splitOk) {
+      toast('Cash + Transfer must equal the total amount', 'warning')
+      return
+    }
 
-    const itemsJson = cart.map(item => ({
-      item_id: item.id,
-      name: item.name,
-      qty: item.quantity,
-      unit_price: item.price,
-      subtotal: item.price * item.quantity
+    const stockOk = await checkStockAvailability()
+    if (!stockOk) return
+
+    setLoading(true)
+    const today = new Date().toISOString().split('T')[0]
+
+    let cashAmt      = 0
+    let transferAmt  = 0
+    let changeGiven  = 0
+
+    if (paymentMethod === 'cash') {
+      cashAmt     = total
+      changeGiven = parseFloat(amountReceived) - total
+    } else if (paymentMethod === 'transfer') {
+      transferAmt = total
+    } else {
+      cashAmt     = parseFloat(cashAmount)     || 0
+      transferAmt = parseFloat(transferAmount) || 0
+    }
+
+    const itemsJson = cart.map(i => ({
+      item_id:   i.id,
+      name:      i.name,
+      qty:       i.quantity,
+      unit_price: i.price,
+      subtotal:  i.price * i.quantity,
     }))
 
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert({
-        shift_date: today,
-        shift_id: activeShift.shift_id,
-        staff_id: session.id,
-        items_json: itemsJson,
-        subtotal: total,
-        total: total,
-        payment_method: paymentMethod,
-        cash_amount: cashAmt,
+        shift_date:      today,
+        shift_id:        activeShift.shift_id,
+        staff_id:        session.id,
+        items_json:      itemsJson,
+        subtotal:        total,
+        total,
+        payment_method:  paymentMethod,
+        cash_amount:     cashAmt,
         transfer_amount: transferAmt,
-        change_given: changeGiven
+        change_given:    changeGiven,
       })
       .select()
       .single()
@@ -163,22 +173,23 @@ export default function PaymentPage() {
     }
 
     await supabase.from('shift_activities').insert({
-      shift_date: today,
-      shift_id: activeShift.shift_id,
-      staff_id: session.id,
-      staff_name: `${session.first_name} ${session.surname}`,
-      staff_role: session.role,
-      action_type: 'TAKE_ORDER',
+      shift_date:     today,
+      shift_id:       activeShift.shift_id,
+      staff_id:       session.id,
+      staff_name:     `${session.first_name} ${session.surname}`,
+      staff_role:     session.role,
+      action_type:    'TAKE_ORDER',
       action_details: {
-        order_id: orderData.id,
+        order_id:       orderData.id,
         total,
-        items: cart.length,
-        payment_method: paymentMethod
-      }
+        items:          cart.length,
+        payment_method: paymentMethod,
+      },
     })
 
+    // Batch stock updates
     for (const item of cart) {
-      const { data: stockData } = await supabase
+      const { data: stock } = await supabase
         .from('shift_stock')
         .select('remaining_qty, sold_qty')
         .eq('shift_date', today)
@@ -186,12 +197,12 @@ export default function PaymentPage() {
         .eq('item_id', item.id)
         .single()
 
-      if (stockData) {
+      if (stock) {
         await supabase
           .from('shift_stock')
           .update({
-            sold_qty: stockData.sold_qty + item.quantity,
-            remaining_qty: stockData.remaining_qty - item.quantity
+            sold_qty:      stock.sold_qty      + item.quantity,
+            remaining_qty: stock.remaining_qty - item.quantity,
           })
           .eq('shift_date', today)
           .eq('shift_id', activeShift.shift_id)
@@ -201,21 +212,18 @@ export default function PaymentPage() {
 
     localStorage.removeItem('current_order_cart')
     localStorage.setItem('last_order', JSON.stringify({
-      orderId: orderData.id,
-      items: cart,
+      orderId:        orderData.id,
+      items:          cart,
       total,
       paymentMethod,
       changeGiven,
-      cashAmount: cashAmt,
-      transferAmount: transferAmt
+      cashAmount:     cashAmt,
+      transferAmount: transferAmt,
     }))
 
     router.push('/dashboard/receipt')
     setLoading(false)
   }
-
-  const total = getTotal()
-  const splitTotal = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
 
   if (!activeShift) {
     return (
@@ -226,113 +234,145 @@ export default function PaymentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4 pb-24 space-y-4">
+    <div className="min-h-screen bg-bg-subtle pb-32">
+      <div className="p-4 space-y-4">
 
-        <h1 className="t-h1 text-text-primary">Payment</h1>
+        {/* Order total hero */}
+        <div className="bg-primary rounded-[18px] p-5 text-white">
+          <p className="t-small text-white/60 uppercase tracking-widest mb-1">Order Total</p>
+          <p className="text-[40px] font-semibold text-white leading-none">
+            ₦{total.toLocaleString()}
+          </p>
+          <p className="t-small text-white/50 mt-2">
+            {cart.length} item{cart.length !== 1 ? 's' : ''} ·{' '}
+            {activeShift?.shifts?.name} Shift
+          </p>
+        </div>
 
-        {/* Order summary */}
+        {/* Order items */}
         <div className="card">
-          <p className="t-h3 text-text-primary mb-3">Order Summary</p>
+          <p className="t-h3 text-text-primary mb-3">Items</p>
           <div className="space-y-2">
             {cart.map(item => (
-              <div key={item.id} className="flex justify-between">
-                <p className="t-body text-text-secondary">{item.quantity}× {item.name}</p>
-                <p className="t-body text-text-primary">₦{(item.price * item.quantity).toLocaleString()}</p>
+              <div key={item.id} className="flex justify-between items-center">
+                <div>
+                  <p className="t-body text-text-primary">{item.name}</p>
+                  <p className="t-small text-text-muted">
+                    {item.quantity} × ₦{item.price.toLocaleString()}
+                  </p>
+                </div>
+                <p className="t-mono text-text-primary font-medium">
+                  ₦{(item.price * item.quantity).toLocaleString()}
+                </p>
               </div>
             ))}
           </div>
-          <div className="border-t border-border mt-3 pt-3 flex justify-between">
-            <p className="t-h3 text-text-primary">Total</p>
-            <p className="t-h2 text-primary">₦{total.toLocaleString()}</p>
-          </div>
         </div>
 
-        {/* Payment method */}
+        {/* Payment method selector */}
         <div className="card">
           <p className="t-h3 text-text-primary mb-3">Payment Method</p>
-          <div className="flex gap-2 mb-4">
-            {(['cash', 'transfer', 'split'] as const).map(method => (
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {PAYMENT_METHODS.map(({ key, label, icon: Icon }) => (
               <button
-                key={method}
-                onClick={() => setPaymentMethod(method)}
-                className={`flex-1 py-2 rounded-[10px] t-label capitalize transition-colors ${
-                  paymentMethod === method
+                key={key}
+                onClick={() => setPaymentMethod(key)}
+                className={`flex flex-col items-center gap-1.5 py-3 rounded-[12px] t-small font-medium transition-colors min-h-0 ${
+                  paymentMethod === key
                     ? 'bg-primary text-white'
-                    : 'bg-bg-subtle text-text-secondary'
+                    : 'bg-bg-subtle text-text-secondary border border-border'
                 }`}
               >
-                {method}
+                <Icon size={18} />
+                {label}
               </button>
             ))}
           </div>
 
+          {/* Cash input */}
           {paymentMethod === 'cash' && (
             <div>
-              <label className="block t-label text-text-primary mb-1">Amount Received</label>
+              <label className="block t-label text-text-primary mb-2">
+                Amount Received (₦)
+              </label>
               <input
                 type="number"
                 value={amountReceived}
                 onChange={(e) => setAmountReceived(e.target.value)}
                 className="input-base"
-                placeholder="Enter amount"
+                placeholder="0"
+                inputMode="numeric"
+                autoFocus
               />
-              {amountReceived && parseFloat(amountReceived) >= total && (
-                <p className="t-body text-[#2E7D32] mt-2">
-                  Change: ₦{getChange().toLocaleString()}
-                </p>
-              )}
-              {amountReceived && parseFloat(amountReceived) < total && (
-                <p className="t-body text-danger mt-2">
-                  Short by ₦{Math.abs(getChange()).toLocaleString()}
-                </p>
+              {amountReceived && (
+                <div className={`mt-3 p-3 rounded-[10px] flex justify-between items-center ${
+                  change >= 0 ? 'bg-[#2E7D32]/10' : 'bg-danger/10'
+                }`}>
+                  <p className={`t-label ${change >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>
+                    {change >= 0 ? 'Change' : 'Short by'}
+                  </p>
+                  <p className={`t-mono font-semibold ${change >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>
+                    ₦{Math.abs(change).toLocaleString()}
+                  </p>
+                </div>
               )}
             </div>
           )}
 
+          {/* Split input */}
           {paymentMethod === 'split' && (
             <div className="space-y-3">
               <div>
-                <label className="block t-label text-text-primary mb-1">Cash Amount</label>
+                <label className="block t-label text-text-primary mb-2">Cash Amount (₦)</label>
                 <input
                   type="number"
                   value={cashAmount}
                   onChange={(e) => setCashAmount(e.target.value)}
                   className="input-base"
-                  placeholder="Enter cash amount"
+                  placeholder="0"
+                  inputMode="numeric"
                 />
               </div>
               <div>
-                <label className="block t-label text-text-primary mb-1">Transfer Amount</label>
+                <label className="block t-label text-text-primary mb-2">Transfer Amount (₦)</label>
                 <input
                   type="number"
                   value={transferAmount}
                   onChange={(e) => setTransferAmount(e.target.value)}
                   className="input-base"
-                  placeholder="Enter transfer amount"
+                  placeholder="0"
+                  inputMode="numeric"
                 />
               </div>
-              {splitTotal > 0 && splitTotal !== total && (
-                <p className="t-small text-danger">
-                  Total must equal ₦{total.toLocaleString()} · Currently ₦{splitTotal.toLocaleString()}
+              <div className={`p-3 rounded-[10px] flex justify-between items-center ${
+                splitOk ? 'bg-[#2E7D32]/10' : 'bg-bg-subtle'
+              }`}>
+                <p className={`t-label ${splitOk ? 'text-[#2E7D32]' : 'text-text-muted'}`}>
+                  {splitOk ? '✓ Amounts match' : 'Remaining'}
                 </p>
-              )}
-              {splitTotal === total && (
-                <p className="t-small text-[#2E7D32]">✓ Amounts match</p>
-              )}
+                {!splitOk && (
+                  <p className="t-mono text-text-secondary">
+                    ₦{Math.abs(splitDiff).toLocaleString()}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
 
+      </div>
+
+      {/* Sticky confirm button */}
+      <div className="fixed bottom-[68px] left-0 right-0 px-4 z-20 pb-2">
         <button
           onClick={handleConfirmOrder}
           disabled={loading}
-          className="btn-primary w-full"
+          className="btn-primary w-full shadow-lg"
         >
-          {loading ? 'Processing...' : 'Confirm Order'}
+          {loading ? 'Processing...' : 'Confirm & Complete Order'}
         </button>
-
       </div>
+
     </div>
   )
 }
