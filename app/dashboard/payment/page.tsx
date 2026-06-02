@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
@@ -24,13 +24,15 @@ const PAYMENT_METHODS = [
 export default function PaymentPage() {
   const router = useRouter()
   const toast  = useToast()
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'split'>('cash')
   const [cashAmount, setCashAmount] = useState('')
   const [transferAmount, setTransferAmount] = useState('')
   const [amountReceived, setAmountReceived] = useState('')
+  const activeShiftRef = useRef<any>(null)
   const [activeShift, setActiveShift] = useState<any>(null)
 
   useEffect(() => {
@@ -40,20 +42,17 @@ export default function PaymentPage() {
       return
     }
     setSession(userSession)
-    loadCart()
-    checkActiveShift()
+
+    const saved = localStorage.getItem('current_order_cart')
+    if (!saved) {
+      router.push('/dashboard/orders')
+      return
+    }
+    setCart(JSON.parse(saved))
+    initShift()
   }, [router])
 
-  const loadCart = () => {
-    const saved = localStorage.getItem('current_order_cart')
-    if (saved) {
-      setCart(JSON.parse(saved))
-    } else {
-      router.push('/dashboard/orders')
-    }
-  }
-
-  const checkActiveShift = async () => {
+  const initShift = async () => {
     const today = new Date().toISOString().split('T')[0]
     const { data, error } = await supabase
       .from('shift_sessions')
@@ -65,24 +64,29 @@ export default function PaymentPage() {
     if (!data || error) {
       toast('No active shift. Please open a shift first.', 'warning')
       router.push('/dashboard')
-    } else {
-      setActiveShift(data)
+      return
     }
+
+    activeShiftRef.current = data
+    setActiveShift(data)
+    setLoading(false)
   }
 
-  const checkStockAvailability = async () => {
+  const checkStockAvailability = async (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
-    for (const item of cart) {
+    const cartItems = JSON.parse(localStorage.getItem('current_order_cart') || '[]')
+
+    for (const item of cartItems) {
       const { data, error } = await supabase
         .from('shift_stock')
         .select('remaining_qty')
         .eq('shift_date', today)
-        .eq('shift_id', activeShift.shift_id)
+        .eq('shift_id', shiftId)
         .eq('item_id', item.id)
         .single()
 
       if (error || !data) {
-        toast(`Error checking stock for ${item.name}`, 'error')
+        toast(`Stock not found for ${item.name}. Make sure shift was opened correctly.`, 'error')
         return false
       }
       if (data.remaining_qty < item.quantity) {
@@ -96,23 +100,23 @@ export default function PaymentPage() {
     return true
   }
 
-  const total     = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const change    = parseFloat(amountReceived) - total
-  const splitSum  = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
-  const splitOk   = splitSum === total
+  const total    = cart.reduce((s, i) => s + i.price * i.quantity, 0)
+  const change   = parseFloat(amountReceived) - total
+  const splitSum = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
+  const splitOk  = splitSum === total
   const splitDiff = total - splitSum
 
   const handleConfirmOrder = async () => {
-    if (!activeShift) {
+    const shift = activeShiftRef.current
+    if (!shift) {
       toast('No active shift found', 'error')
       return
     }
 
-    // Validate payment inputs
     if (paymentMethod === 'cash') {
       const received = parseFloat(amountReceived)
       if (isNaN(received) || received < total) {
-        toast('Amount received is less than total', 'warning')
+        toast('Amount received is less than the total', 'warning')
         return
       }
     }
@@ -121,15 +125,15 @@ export default function PaymentPage() {
       return
     }
 
-    const stockOk = await checkStockAvailability()
+    const stockOk = await checkStockAvailability(shift.shift_id)
     if (!stockOk) return
 
-    setLoading(true)
+    setProcessing(true)
     const today = new Date().toISOString().split('T')[0]
 
-    let cashAmt      = 0
-    let transferAmt  = 0
-    let changeGiven  = 0
+    let cashAmt     = 0
+    let transferAmt = 0
+    let changeGiven = 0
 
     if (paymentMethod === 'cash') {
       cashAmt     = total
@@ -142,18 +146,18 @@ export default function PaymentPage() {
     }
 
     const itemsJson = cart.map(i => ({
-      item_id:   i.id,
-      name:      i.name,
-      qty:       i.quantity,
+      item_id:    i.id,
+      name:       i.name,
+      qty:        i.quantity,
       unit_price: i.price,
-      subtotal:  i.price * i.quantity,
+      subtotal:   i.price * i.quantity,
     }))
 
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert({
         shift_date:      today,
-        shift_id:        activeShift.shift_id,
+        shift_id:        shift.shift_id,
         staff_id:        session.id,
         items_json:      itemsJson,
         subtotal:        total,
@@ -168,13 +172,13 @@ export default function PaymentPage() {
 
     if (orderError) {
       toast('Error saving order: ' + orderError.message, 'error')
-      setLoading(false)
+      setProcessing(false)
       return
     }
 
     await supabase.from('shift_activities').insert({
       shift_date:     today,
-      shift_id:       activeShift.shift_id,
+      shift_id:       shift.shift_id,
       staff_id:       session.id,
       staff_name:     `${session.first_name} ${session.surname}`,
       staff_role:     session.role,
@@ -187,13 +191,12 @@ export default function PaymentPage() {
       },
     })
 
-    // Batch stock updates
     for (const item of cart) {
       const { data: stock } = await supabase
         .from('shift_stock')
         .select('remaining_qty, sold_qty')
         .eq('shift_date', today)
-        .eq('shift_id', activeShift.shift_id)
+        .eq('shift_id', shift.shift_id)
         .eq('item_id', item.id)
         .single()
 
@@ -205,7 +208,7 @@ export default function PaymentPage() {
             remaining_qty: stock.remaining_qty - item.quantity,
           })
           .eq('shift_date', today)
-          .eq('shift_id', activeShift.shift_id)
+          .eq('shift_id', shift.shift_id)
           .eq('item_id', item.id)
       }
     }
@@ -222,10 +225,10 @@ export default function PaymentPage() {
     }))
 
     router.push('/dashboard/receipt')
-    setLoading(false)
+    setProcessing(false)
   }
 
-  if (!activeShift) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
         <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
@@ -237,19 +240,18 @@ export default function PaymentPage() {
     <div className="min-h-screen bg-bg-subtle pb-32">
       <div className="p-4 space-y-4">
 
-        {/* Order total hero */}
+        {/* Total hero */}
         <div className="bg-primary rounded-[18px] p-5 text-white">
           <p className="t-small text-white/60 uppercase tracking-widest mb-1">Order Total</p>
           <p className="text-[40px] font-semibold text-white leading-none">
             ₦{total.toLocaleString()}
           </p>
           <p className="t-small text-white/50 mt-2">
-            {cart.length} item{cart.length !== 1 ? 's' : ''} ·{' '}
-            {activeShift?.shifts?.name} Shift
+            {cart.length} item{cart.length !== 1 ? 's' : ''} · {activeShift?.shifts?.name} Shift
           </p>
         </div>
 
-        {/* Order items */}
+        {/* Items */}
         <div className="card">
           <p className="t-h3 text-text-primary mb-3">Items</p>
           <div className="space-y-2">
@@ -269,7 +271,7 @@ export default function PaymentPage() {
           </div>
         </div>
 
-        {/* Payment method selector */}
+        {/* Payment method */}
         <div className="card">
           <p className="t-h3 text-text-primary mb-3">Payment Method</p>
           <div className="grid grid-cols-3 gap-2 mb-4">
@@ -277,19 +279,18 @@ export default function PaymentPage() {
               <button
                 key={key}
                 onClick={() => setPaymentMethod(key)}
-                className={`flex flex-col items-center gap-1.5 py-3 rounded-[12px] t-small font-medium transition-colors min-h-0 ${
+                className={`flex flex-col items-center gap-1.5 py-4 rounded-[12px] t-small font-medium transition-colors min-h-0 ${
                   paymentMethod === key
                     ? 'bg-primary text-white'
                     : 'bg-bg-subtle text-text-secondary border border-border'
                 }`}
               >
-                <Icon size={18} />
+                <Icon size={20} />
                 {label}
               </button>
             ))}
           </div>
 
-          {/* Cash input */}
           {paymentMethod === 'cash' && (
             <div>
               <label className="block t-label text-text-primary mb-2">
@@ -319,7 +320,6 @@ export default function PaymentPage() {
             </div>
           )}
 
-          {/* Split input */}
           {paymentMethod === 'split' && (
             <div className="space-y-3">
               <div>
@@ -345,13 +345,13 @@ export default function PaymentPage() {
                 />
               </div>
               <div className={`p-3 rounded-[10px] flex justify-between items-center ${
-                splitOk ? 'bg-[#2E7D32]/10' : 'bg-bg-subtle'
+                splitOk ? 'bg-[#2E7D32]/10' : 'bg-bg-subtle border border-border'
               }`}>
                 <p className={`t-label ${splitOk ? 'text-[#2E7D32]' : 'text-text-muted'}`}>
                   {splitOk ? '✓ Amounts match' : 'Remaining'}
                 </p>
                 {!splitOk && (
-                  <p className="t-mono text-text-secondary">
+                  <p className="t-mono text-text-secondary font-medium">
                     ₦{Math.abs(splitDiff).toLocaleString()}
                   </p>
                 )}
@@ -362,17 +362,16 @@ export default function PaymentPage() {
 
       </div>
 
-      {/* Sticky confirm button */}
+      {/* Sticky confirm */}
       <div className="fixed bottom-[68px] left-0 right-0 px-4 z-20 pb-2">
         <button
           onClick={handleConfirmOrder}
-          disabled={loading}
+          disabled={processing}
           className="btn-primary w-full shadow-lg"
         >
-          {loading ? 'Processing...' : 'Confirm & Complete Order'}
+          {processing ? 'Processing...' : 'Confirm & Complete Order'}
         </button>
       </div>
-
     </div>
   )
 }
