@@ -43,19 +43,29 @@ export default function CloseShiftPage() {
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
+    
+    // FIX: Changed from .single() to .maybeSingle()
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
       .eq('shift_date', today)
       .eq('status', 'open')
-      .single()
+      .maybeSingle()
 
-    if (!data || error) {
+    if (error) {
+      console.error('Error checking active shift:', error)
+      toast('Error loading shift', 'error')
+      router.push('/dashboard')
+      return
+    }
+
+    if (!data) {
       toast('No active shift to close', 'warning')
       router.push('/dashboard')
       return
     }
 
+    console.log('Active shift found for closing:', data.shift_id)
     activeShiftRef.current = data
     setActiveShift(data)
     await fetchStockData(data.shift_id)
@@ -64,20 +74,31 @@ export default function CloseShiftPage() {
 
   const fetchStockData = async (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('shift_stock')
       .select('*')
       .eq('shift_date', today)
       .eq('shift_id', shiftId)
-      .order('item_name')
 
-    if (data) {
+    if (error) {
+      console.error('Error fetching stock:', error)
+      toast('Error loading stock data', 'error')
+      return
+    }
+
+    console.log('Stock records found for closing:', data?.length || 0)
+
+    if (data && data.length > 0) {
       setStockItems(data.map(item => ({
         ...item,
         expected_remaining: item.remaining_qty,
         actual_remaining: item.remaining_qty,
         variance: 0,
       })))
+    } else {
+      console.warn('No stock records found for this shift!')
+      toast('No stock data found. Please reopen the shift.', 'warning')
+      router.push('/dashboard')
     }
   }
 
@@ -131,6 +152,7 @@ export default function CloseShiftPage() {
         .insert(closeRecords)
 
       if (closeError) {
+        console.error('Close record error:', closeError)
         toast('Error saving stock count: ' + closeError.message, 'error')
         setSubmitting(false)
         return
@@ -151,14 +173,14 @@ export default function CloseShiftPage() {
         .eq('shift_id', shift.shift_id),
     ])
 
-    const orders   = ordersRes.data   || []
+    const orders = ordersRes.data || []
     const expenses = expensesRes.data || []
 
-    const totalRevenue     = orders.reduce((s, o) => s + (o.total || 0), 0)
-    const cashRevenue      = orders.reduce((s, o) => s + (o.cash_amount || 0), 0)
-    const transferRevenue  = orders.reduce((s, o) => s + (o.transfer_amount || 0), 0)
-    const totalExpenses    = expenses.reduce((s, e) => s + (e.amount || 0), 0)
-    const cashExpenses     = expenses.filter(e => e.payment_method === 'cash').reduce((s, e) => s + e.amount, 0)
+    const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0)
+    const cashRevenue = orders.reduce((s, o) => s + (o.cash_amount || 0), 0)
+    const transferRevenue = orders.reduce((s, o) => s + (o.transfer_amount || 0), 0)
+    const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0)
+    const cashExpenses = expenses.filter(e => e.payment_method === 'cash').reduce((s, e) => s + e.amount, 0)
     const transferExpenses = expenses.filter(e => e.payment_method === 'transfer').reduce((s, e) => s + e.amount, 0)
 
     // Step 3 — log activity
@@ -172,7 +194,7 @@ export default function CloseShiftPage() {
       action_details: { closed_at: new Date().toISOString() },
     })
 
-    // Step 4 — update shift session status — this is the critical step
+    // Step 4 — update shift session status
     const { error: sessionError } = await supabase
       .from('shift_sessions')
       .update({
@@ -183,6 +205,7 @@ export default function CloseShiftPage() {
       .eq('id', shift.id)
 
     if (sessionError) {
+      console.error('Session update error:', sessionError)
       toast('Error closing shift session: ' + sessionError.message, 'error')
       setSubmitting(false)
       return
@@ -193,7 +216,7 @@ export default function CloseShiftPage() {
       .from('shift_sessions')
       .select('status')
       .eq('id', shift.id)
-      .single()
+      .maybeSingle()
 
     if (verifyData?.status !== 'closed') {
       toast('Shift status did not update. Please try again.', 'error')
@@ -216,11 +239,11 @@ export default function CloseShiftPage() {
       netRevenue: totalRevenue - totalExpenses,
       orderCount: orders.length,
       stockItems: stockItems.map(item => ({
-        name:     item.item_name,
-        opening:  item.opening_qty,
-        sold:     item.sold_qty,
+        name: item.item_name,
+        opening: item.opening_qty,
+        sold: item.sold_qty,
         expected: item.expected_remaining,
-        actual:   item.actual_remaining,
+        actual: item.actual_remaining,
         variance: item.variance,
       })),
     }
@@ -234,7 +257,7 @@ export default function CloseShiftPage() {
   const totals = stockItems.reduce(
     (acc, item) => ({
       expected: acc.expected + item.expected_remaining,
-      actual:   acc.actual   + item.actual_remaining,
+      actual: acc.actual + item.actual_remaining,
       variance: acc.variance + item.variance,
     }),
     { expected: 0, actual: 0, variance: 0 }
@@ -266,7 +289,7 @@ export default function CloseShiftPage() {
           <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/20">
             {[
               { label: 'Expected', value: totals.expected },
-              { label: 'Actual',   value: totals.actual   },
+              { label: 'Actual', value: totals.actual },
               {
                 label: 'Variance',
                 value: totals.variance > 0
@@ -309,8 +332,8 @@ export default function CloseShiftPage() {
 
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {[
-                    { label: 'Opening',  value: item.opening_qty        },
-                    { label: 'Sold',     value: item.sold_qty           },
+                    { label: 'Opening', value: item.opening_qty },
+                    { label: 'Sold', value: item.sold_qty },
                     { label: 'Expected', value: item.expected_remaining },
                   ].map(({ label, value }) => (
                     <div key={label} className="bg-bg-subtle rounded-[10px] py-2.5 text-center">

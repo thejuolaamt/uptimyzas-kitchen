@@ -117,62 +117,73 @@ export default function MenuManagement() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="t-h1 text-text-primary">Menu Management</h1>
-        <button onClick={() => openModal()} className="btn-primary flex items-center gap-2">
+        <button onClick={() => openModal()} className="btn-primary flex items-center gap-2 whitespace-nowrap">
           <Plus size={16} /> Add Item
         </button>
       </div>
 
+      {/* Table with horizontal scroll - FIXED */}
       <div className="bg-white rounded-[10px] border border-border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-bg-subtle border-b border-border">
-            <tr>
-              {['Name', 'Category', 'Unit', 'Price (₦)', 'Status', 'Actions'].map(h => (
-                <th key={h} className={`p-3 t-label text-text-secondary ${h === 'Price (₦)' ? 'text-right' : h === 'Status' || h === 'Actions' ? 'text-center' : 'text-left'}`}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center p-8 t-body text-text-muted">
-                  No menu items yet. Click "Add Item" to create one.
-                </td>
-              </tr>
-            ) : (
-              items.map((item) => (
-                <tr key={item.id} className="border-b border-border hover:bg-bg-subtle">
-                  <td className="p-3 t-body text-text-primary">{item.name}</td>
-                  <td className="p-3 t-body text-text-secondary">{item.category}</td>
-                  <td className="p-3 t-body text-text-secondary">{item.unit}</td>
-                  <td className="p-3 text-right t-mono">₦{item.price.toLocaleString()}</td>
-                  <td className="p-3 text-center">
-                    <button
-                      onClick={() => toggleAvailability(item)}
-                      className={`px-2 py-1 rounded-full t-small font-medium ${
-                        item.available ? 'bg-[#2E7D32]/10 text-[#2E7D32]' : 'bg-danger/10 text-danger'
-                      }`}
-                    >
-                      {item.available ? 'Available' : 'Unavailable'}
-                    </button>
-                  </td>
-                  <td className="p-3 text-center">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => openModal(item)} className="text-[#1565C0] min-h-0 min-w-0 w-8 h-8 flex items-center justify-center">
-                        <Edit size={16} />
-                      </button>
-                      <button onClick={() => setDeleteConfirm(item.id)} className="text-danger min-h-0 min-w-0 w-8 h-8 flex items-center justify-center">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
+        <div className="overflow-x-auto">
+          <div className="min-w-[640px]">
+            <table className="w-full">
+              <thead className="bg-bg-subtle border-b border-border">
+                <tr>
+                  {['Name', 'Category', 'Unit', 'Price (₦)', 'Status', 'Actions'].map(h => (
+                    <th key={h} className={`p-3 t-label text-text-secondary whitespace-nowrap ${h === 'Price (₦)' ? 'text-right' : h === 'Status' || h === 'Actions' ? 'text-center' : 'text-left'}`}>{h}</th>
+                  ))}
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center p-8 t-body text-text-muted">
+                      No menu items yet. Click "Add Item" to create one.
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <tr key={item.id} className="border-b border-border hover:bg-bg-subtle">
+                      <td className="p-3 t-body text-text-primary whitespace-nowrap">{item.name}</td>
+                      <td className="p-3 t-body text-text-secondary whitespace-nowrap">{item.category}</td>
+                      <td className="p-3 t-body text-text-secondary whitespace-nowrap">{item.unit}</td>
+                      <td className="p-3 text-right t-mono whitespace-nowrap">₦{item.price.toLocaleString()}</td>
+                      <td className="p-3 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => toggleAvailability(item)}
+                          className={`px-2 py-1 rounded-full t-small font-medium min-w-[80px] ${
+                            item.available ? 'bg-[#2E7D32]/10 text-[#2E7D32]' : 'bg-danger/10 text-danger'
+                          }`}
+                        >
+                          {item.available ? 'Available' : 'Unavailable'}
+                        </button>
+                       </td>
+                      <td className="p-3 text-center whitespace-nowrap">
+                        <div className="flex justify-center gap-2">
+                          <button 
+                            onClick={() => openModal(item)} 
+                            className="text-[#1565C0] min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#1565C0]/10 transition-colors"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button 
+                            onClick={() => setDeleteConfirm(item.id)} 
+                            className="text-danger min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-danger/10 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Add/Edit modal */}
@@ -182,7 +193,9 @@ export default function MenuManagement() {
             <div className="w-10 h-1 rounded-full bg-border mx-auto mb-5" />
             <div className="flex justify-between items-center mb-4">
               <p className="t-h2 text-text-primary">{editingItem ? 'Edit Item' : 'Add New Item'}</p>
-              <button onClick={closeModal} className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center"><X size={18} /></button>
+              <button onClick={closeModal} className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-subtle">
+                <X size={18} />
+              </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               {[

@@ -32,13 +32,16 @@ export default function PWAInstall() {
   if (!showInstall) return null
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-50">
-      <div className="bg-white rounded-[10px] border border-border p-4 flex items-center justify-between">
-        <div>
+    <div className="fixed left-4 right-4 z-50 safe-bottom" style={{ bottom: 'calc(68px + 16px)' }}>
+      <div className="bg-white rounded-[10px] border border-border p-4 flex items-center justify-between shadow-lg">
+        <div className="flex-1">
           <p className="t-body font-medium text-text-primary">Install App</p>
           <p className="t-small text-text-secondary">Add to home screen for faster access</p>
         </div>
-        <button onClick={handleInstall} className="btn-primary py-2 px-4">
+        <button 
+          onClick={handleInstall} 
+          className="btn-primary py-2 px-4 min-h-0"
+        >
           Install
         </button>
       </div>

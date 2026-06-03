@@ -56,7 +56,7 @@ export default function AdminLayout({
     <div className="min-h-screen bg-bg-subtle">
 
       {/* Top bar */}
-      <div className="top-bar">
+      <div className="top-bar fixed top-0 left-0 right-0 z-20 bg-white">
         {pageTitle ? (
           <>
             <button
@@ -78,41 +78,46 @@ export default function AdminLayout({
         )}
       </div>
 
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex pt-14">
-        <div className="w-56 bg-white border-r border-border min-h-screen flex flex-col fixed top-14 left-0 bottom-0">
-          <div className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-            {allItems.map(({ name, icon: Icon, path }) => {
-              const isActive = pathname === path
-              return (
-                <button
-                  key={path}
-                  onClick={() => navigate(path)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] transition-colors min-h-0 ${
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary'
-                  }`}
-                >
-                  <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
-                  <span className="t-body font-medium">{name}</span>
-                </button>
-              )
-            })}
+      {/* Desktop layout - FIXED */}
+      <div className="hidden md:flex">
+        {/* Sidebar - fixed positioning with top offset */}
+        <aside className="fixed top-14 left-0 bottom-0 w-56 bg-white border-r border-border overflow-y-auto z-10">
+          <div className="flex flex-col h-full">
+            <div className="flex-1 px-3 py-4 space-y-0.5">
+              {allItems.map(({ name, icon: Icon, path }) => {
+                const isActive = pathname === path
+                return (
+                  <button
+                    key={path}
+                    onClick={() => navigate(path)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] transition-colors min-h-0 ${
+                      isActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary'
+                    }`}
+                  >
+                    <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
+                    <span className="t-body font-medium">{name}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-3 pb-6 border-t border-border pt-3">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-danger hover:bg-danger/5 transition-colors min-h-0"
+              >
+                <LogOut size={18} />
+                <span className="t-body font-medium">Sign Out</span>
+              </button>
+            </div>
           </div>
-          <div className="px-3 pb-6 border-t border-border pt-3">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-danger hover:bg-danger/5 transition-colors min-h-0"
-            >
-              <LogOut size={18} />
-              <span className="t-body font-medium">Sign Out</span>
-            </button>
-          </div>
-        </div>
-        <div className="flex-1 ml-56 min-w-0">
+        </aside>
+
+        {/* Main content - offset by sidebar width AND top bar height */}
+        <main className="flex-1 ml-56 mt-14 min-h-screen min-w-0">
           {children}
-        </div>
+        </main>
       </div>
 
       {/* Mobile content */}
@@ -121,7 +126,7 @@ export default function AdminLayout({
       </div>
 
       {/* Mobile bottom nav */}
-      <div className="md:hidden bottom-nav">
+      <div className="md:hidden bottom-nav fixed bottom-0 left-0 right-0 z-20 bg-white">
         {bottomNav.map(({ name, icon: Icon, path }) => {
           const isActive = pathname === path
           return (
@@ -179,7 +184,7 @@ export default function AdminLayout({
           </button>
         </div>
 
-        <div className="px-4 py-4 grid grid-cols-3 gap-2">
+        <div className="px-4 py-4 grid grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto">
           {drawerItems.map(({ name, icon: Icon, path }) => {
             const isActive = pathname === path
             return (

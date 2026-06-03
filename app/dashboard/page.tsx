@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Clock, ShoppingBag, ChevronRight } from 'lucide-react'
+import { Clock, ShoppingBag, ChevronRight, RefreshCw } from 'lucide-react'
+import { useScrollContainer } from '@/lib/useScrollContainer'
 
 type Shift = {
   id: string
@@ -24,21 +25,86 @@ type StockEntry = {
   [itemId: string]: string
 }
 
+// Skeleton Loader Component
+function DashboardSkeleton() {
+  return (
+    <div className="min-h-screen bg-bg-subtle">
+      <div className="p-4 pb-24 space-y-6">
+        {/* Greeting skeleton */}
+        <div className="pt-2 space-y-2">
+          <div className="skeleton h-8 w-48" />
+          <div className="skeleton h-5 w-64" />
+        </div>
+
+        {/* Active shift skeleton */}
+        <div className="skeleton-card">
+          <div className="space-y-3">
+            <div className="skeleton h-4 w-24" />
+            <div className="skeleton h-8 w-40" />
+            <div className="skeleton h-4 w-32" />
+            <div className="flex gap-3 mt-4">
+              <div className="skeleton-button flex-1" />
+              <div className="skeleton-button flex-1" />
+            </div>
+          </div>
+        </div>
+
+        {/* Shifts list skeleton */}
+        <div className="space-y-3">
+          <div className="skeleton h-6 w-32" />
+          {[1, 2, 3].map(i => (
+            <div key={i} className="skeleton-card">
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <div className="space-y-2">
+                    <div className="skeleton h-6 w-32" />
+                    <div className="skeleton h-4 w-24" />
+                  </div>
+                  <div className="skeleton h-6 w-16" />
+                </div>
+                <div className="skeleton-button" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function StaffDashboard() {
   const router = useRouter()
   const toast = useToast()
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [assignedShifts, setAssignedShifts] = useState<Shift[]>([])
   const [activeShift, setActiveShift] = useState<any>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [timezone, setTimezone] = useState('Africa/Lagos')
 
-  // Stock modal state
   const [showStockModal, setShowStockModal] = useState(false)
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null)
   const [stockEntries, setStockEntries] = useState<StockEntry>({})
   const [submitting, setSubmitting] = useState(false)
+
+  // Pull-to-refresh handler
+  const handlePullToRefresh = async () => {
+    setRefreshing(true)
+    toast('Refreshing dashboard...', 'info')
+    
+    await fetchAll()
+    
+    setRefreshing(false)
+    toast('Dashboard refreshed!', 'success')
+  }
+
+  // Scroll container with pull-to-refresh
+  const scrollRef = useScrollContainer({
+    preventPullToRefresh: true,
+    onPullToRefresh: handlePullToRefresh,
+    pullThreshold: 80
+  })
 
   useEffect(() => {
     const userSession = getSession()
@@ -69,24 +135,33 @@ export default function StaffDashboard() {
       .from('settings')
       .select('value')
       .eq('key', 'timezone')
-      .single()
+      .maybeSingle()
+    
     if (data?.value) setTimezone(data.value)
   }
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
+    
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
       .eq('shift_date', today)
       .eq('status', 'open')
-      .single()
+      .maybeSingle()
 
-    if (data && !error) setActiveShift(data)
+    if (error) {
+      console.error('Error checking active shift:', error)
+      return
+    }
+
+    if (data) {
+      console.log('Active shift found:', data.shift_id)
+      setActiveShift(data)
+    }
   }
 
   const fetchAssignedShifts = async () => {
-    // Get shifts assigned to this staff member only
     const { data, error } = await supabase
       .from('staff_shifts')
       .select('shift_id, shifts(*)')
@@ -119,7 +194,6 @@ export default function StaffDashboard() {
     const startMinutes = startH * 60 + startM
     const endMinutes = endH * 60 + endM
 
-    // Handle overnight shifts e.g. 10pm - 6am
     if (endMinutes < startMinutes) {
       return nowMinutes >= startMinutes || nowMinutes <= endMinutes
     }
@@ -145,7 +219,6 @@ export default function StaffDashboard() {
   }
 
   const handleOpenShiftClick = async (shift: Shift) => {
-    // Time window check
     if (!isWithinShiftWindow(shift)) {
       const status = getShiftStatus(shift)
       if (status === 'upcoming') {
@@ -162,7 +235,7 @@ export default function StaffDashboard() {
       .select('id')
       .eq('shift_date', today)
       .eq('shift_id', shift.id)
-      .single()
+      .maybeSingle()
 
     if (existing) {
       toast('This shift is already open for today', 'warning')
@@ -210,18 +283,36 @@ export default function StaffDashboard() {
       action_details: { opened_at: new Date().toISOString() },
     })
 
-    const stockRows = menuItems.map(item => ({
-      shift_date: today,
-      shift_id: selectedShift.id,
-      item_id: item.id,
-      item_name: item.name,
-      opening_qty: parseInt(stockEntries[item.id]) || 0,
-      sold_qty: 0,
-      remaining_qty: parseInt(stockEntries[item.id]) || 0,
-      opener_staff_id: session.id,
-    }))
+    let hasError = false
+    for (const item of menuItems) {
+      const openingQty = parseInt(stockEntries[item.id]) || 0
+      
+      const { error: stockError } = await supabase
+        .from('shift_stock')
+        .insert({
+          shift_date: today,
+          shift_id: selectedShift.id,
+          item_id: item.id,
+          item_name: item.name,
+          opening_qty: openingQty,
+          sold_qty: 0,
+          remaining_qty: openingQty,
+          opener_staff_id: session.id,
+          unit: item.unit,
+        })
 
-    await supabase.from('shift_stock').insert(stockRows)
+      if (stockError) {
+        console.error(`Error inserting stock for ${item.name}:`, stockError)
+        toast(`Error saving stock for ${item.name}: ${stockError.message}`, 'error')
+        hasError = true
+        break
+      }
+    }
+
+    if (hasError) {
+      setSubmitting(false)
+      return
+    }
 
     setActiveShift({ ...sessionData, shifts: selectedShift })
     setShowStockModal(false)
@@ -230,18 +321,24 @@ export default function StaffDashboard() {
     toast('Shift opened successfully!', 'success')
   }
 
+  // Show skeleton while loading
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <DashboardSkeleton />
   }
 
   return (
-    <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4 pb-24 space-y-6">
+    <div ref={scrollRef} className="page-scroll">
+      {/* Pull-to-refresh indicator */}
+      {refreshing && (
+        <div className="fixed top-14 left-0 right-0 z-50 flex justify-center py-2 bg-primary/10">
+          <div className="flex items-center gap-2 text-primary">
+            <RefreshCw size={16} className="animate-spin" />
+            <span className="t-small">Refreshing...</span>
+          </div>
+        </div>
+      )}
 
+      <div className="p-4 pb-24 space-y-6">
         {/* Greeting */}
         <div className="pt-2">
           <h1 className="t-h1 text-text-primary">
@@ -348,7 +445,6 @@ export default function StaffDashboard() {
             )}
           </div>
         )}
-
       </div>
 
       {/* Stock modal */}
@@ -371,12 +467,14 @@ export default function StaffDashboard() {
                     <p className="t-small text-text-muted">{item.unit}</p>
                   </div>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={stockEntries[item.id] ?? '0'}
-                    onChange={(e) =>
-                      setStockEntries(prev => ({ ...prev, [item.id]: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9]/g, '')
+                      setStockEntries(prev => ({ ...prev, [item.id]: value }))
+                    }}
                     className="input-base w-24 text-center"
                   />
                 </div>

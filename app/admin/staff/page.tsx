@@ -25,6 +25,54 @@ type StaffMember = {
   declined_at: string | null
 }
 
+// Staff Management Skeleton Component
+function StaffManagementSkeleton() {
+  return (
+    <div className="min-h-screen bg-bg-subtle">
+      <div className="p-4 sm:p-6">
+        {/* Header skeleton */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="skeleton h-8 w-48 rounded" />
+          <div className="skeleton h-6 w-24 rounded-full" />
+        </div>
+
+        {/* Filter tabs skeleton */}
+        <div className="flex gap-1 mb-6 border-b border-border">
+          {['all', 'pending', 'active', 'declined'].map((tab, i) => (
+            <div key={i} className="skeleton h-10 w-20 rounded-t-lg" />
+          ))}
+        </div>
+
+        {/* Staff list skeleton */}
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="card">
+              <div className="flex justify-between items-start">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="skeleton h-5 w-32 rounded" />
+                    <div className="skeleton h-5 w-16 rounded-full" />
+                    <div className="skeleton h-5 w-12 rounded-full" />
+                  </div>
+                  <div className="skeleton h-4 w-48 rounded" />
+                  <div className="skeleton h-4 w-32 rounded" />
+                  <div className="skeleton h-3 w-24 rounded mt-1" />
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <div className="skeleton w-9 h-9 rounded-full" />
+                  <div className="skeleton w-9 h-9 rounded-full" />
+                  <div className="skeleton w-9 h-9 rounded-full" />
+                  <div className="skeleton w-9 h-9 rounded-full" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function StaffManagement() {
   const router = useRouter()
   const toast = useToast()
@@ -137,17 +185,14 @@ export default function StaffManagement() {
     )
   }
 
+  // Show skeleton while loading
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <StaffManagementSkeleton />
   }
 
   return (
     <div className="min-h-screen bg-bg-subtle">
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
 
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
@@ -160,20 +205,22 @@ export default function StaffManagement() {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1 mb-6 border-b border-border">
-          {(['all', 'pending', 'active', 'declined'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setFilter(tab)}
-              className={`px-4 py-2 t-label capitalize transition-colors ${
-                filter === tab
-                  ? 'text-primary border-b-2 border-primary'
-                  : 'text-text-secondary'
-              }`}
-            >
-              {tab}{tab === 'pending' && getPendingCount() > 0 ? ` (${getPendingCount()})` : ''}
-            </button>
-          ))}
+        <div className="flex gap-1 mb-6 border-b border-border overflow-x-auto scrollbar-none">
+          <div className="flex min-w-max">
+            {(['all', 'pending', 'active', 'declined'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`px-4 py-2 t-label capitalize transition-colors ${
+                  filter === tab
+                    ? 'text-primary border-b-2 border-primary'
+                    : 'text-text-secondary'
+                }`}
+              >
+                {tab}{tab === 'pending' && getPendingCount() > 0 ? ` (${getPendingCount()})` : ''}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Staff list */}

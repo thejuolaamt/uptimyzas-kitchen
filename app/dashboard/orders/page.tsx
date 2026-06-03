@@ -25,7 +25,7 @@ type CartItem = {
 }
 
 type StockMap = {
-  [itemId: string]: number // remaining_qty per item
+  [itemId: string]: number
 }
 
 type StockRow = {
@@ -36,6 +36,44 @@ type StockRow = {
   opening_qty: number
   sold_qty: number
   unit: string
+}
+
+// Orders Page Skeleton Component
+function OrdersPageSkeleton() {
+  return (
+    <div className="min-h-screen bg-bg-subtle">
+      {/* Category strip skeleton */}
+      <div className="bg-white border-b border-border sticky top-14 z-10">
+        <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
+          <div className="skeleton h-5 w-24 rounded" />
+          <div className="skeleton h-5 w-20 rounded" />
+        </div>
+        <div className="px-4 pb-3">
+          <div className="flex gap-2 overflow-x-auto">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="skeleton h-8 w-20 rounded-full flex-shrink-0" />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Menu grid skeleton */}
+      <div className="px-4 pt-4 grid grid-cols-2 gap-3">
+        {[1, 2, 3, 4, 5, 6].map(i => (
+          <div key={i} className="bg-white rounded-[18px] border border-border p-4" style={{ minHeight: '100px' }}>
+            <div className="space-y-2">
+              <div className="skeleton h-6 w-32 rounded" />
+              <div className="skeleton h-4 w-20 rounded" />
+              <div className="flex justify-between items-center mt-2">
+                <div className="skeleton h-5 w-16 rounded" />
+                <div className="skeleton h-4 w-12 rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default function OrdersPage() {
@@ -50,7 +88,6 @@ export default function OrdersPage() {
   const [stockRows, setStockRows] = useState<StockRow[]>([])
   const [showCart, setShowCart] = useState(false)
 
-  // Add stock modal
   const [showAddStock, setShowAddStock] = useState(false)
   const [addStockItem, setAddStockItem] = useState<StockRow | null>(null)
   const [addStockQty, setAddStockQty] = useState('')
@@ -58,6 +95,7 @@ export default function OrdersPage() {
 
   const activeShiftRef = useRef<any>(null)
   const sessionRef = useRef<any>(null)
+  const channelRef = useRef<any>(null)
 
   useEffect(() => {
     const userSession = getSession()
@@ -71,27 +109,45 @@ export default function OrdersPage() {
     if (saved) setCart(JSON.parse(saved))
 
     init()
+
+    return () => {
+      // Cleanup channel on unmount
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+      }
+    }
   }, [router])
 
   const init = async () => {
     const today = new Date().toISOString().split('T')[0]
+    
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
       .eq('shift_date', today)
       .eq('status', 'open')
-      .single()
+      .maybeSingle()
 
-    if (!data || error) {
+    if (error) {
+      console.error('Error fetching shift:', error)
+      toast('Error loading shift: ' + error.message, 'error')
+      router.push('/dashboard')
+      return
+    }
+
+    if (!data) {
       toast('No active shift. Please open a shift first.', 'warning')
       router.push('/dashboard')
       return
     }
 
+    console.log('Active shift found:', data.shift_id)
     activeShiftRef.current = data
 
-    await Promise.all([fetchMenuItems(), fetchStock(data.shift_id)])
-    subscribeToStock(data.shift_id)
+    await fetchMenuItems()
+    await fetchStock(data.shift_id)
+    setupStockSubscription(data.shift_id)
+    
     setLoading(false)
   }
 
@@ -110,43 +166,72 @@ export default function OrdersPage() {
 
   const fetchStock = async (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
-    const { data } = await supabase
+    
+    const { data, error } = await supabase
       .from('shift_stock')
       .select('id, item_id, item_name, remaining_qty, opening_qty, sold_qty, unit')
       .eq('shift_date', today)
       .eq('shift_id', shiftId)
 
-    if (data) {
+    if (error) {
+      console.error('Error fetching stock:', error)
+      toast('Error loading stock data', 'error')
+      return
+    }
+    
+    console.log('Stock records found:', data?.length || 0)
+    
+    if (data && data.length > 0) {
       setStockRows(data)
       const map: StockMap = {}
       data.forEach(row => { map[row.item_id] = row.remaining_qty })
       setStockMap(map)
+      console.log('Stock map created with', Object.keys(map).length, 'items')
+    } else {
+      console.warn('No stock records found for this shift!')
+      toast('No stock data found. Please close and reopen the shift.', 'warning')
     }
   }
 
-  const subscribeToStock = (shiftId: string) => {
+  const setupStockSubscription = (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
-    supabase
-      .channel(`orders-stock-${shiftId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'shift_stock',
-          filter: `shift_date=eq.${today}`,
-        },
-        (payload) => {
-          setStockMap(prev => ({
-            ...prev,
-            [payload.new.item_id]: payload.new.remaining_qty,
-          }))
-          setStockRows(prev =>
-            prev.map(r => r.item_id === payload.new.item_id ? { ...r, ...payload.new } : r)
-          )
-        }
-      )
-      .subscribe()
+    
+    // Clean up existing channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+    
+    // Create the channel
+    const channel = supabase.channel(`stock-updates-${shiftId}`)
+    
+    // Add the listener
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'shift_stock',
+        filter: `shift_date=eq.${today}`,
+      },
+      (payload) => {
+        console.log('Stock update:', payload.new.item_name, payload.new.remaining_qty)
+        setStockMap(prev => ({
+          ...prev,
+          [payload.new.item_id]: payload.new.remaining_qty,
+        }))
+        setStockRows(prev =>
+          prev.map(r => r.item_id === payload.new.item_id ? { ...r, ...payload.new } : r)
+        )
+      }
+    )
+    
+    // Subscribe
+    channel.subscribe((status) => {
+      console.log('Stock subscription status:', status)
+    })
+    
+    channelRef.current = channel
   }
 
   const saveCart = (newCart: CartItem[]) => {
@@ -189,13 +274,6 @@ export default function OrdersPage() {
     saveCart(newCart)
   }
 
-  // Mid-shift stock top-up
-  const openAddStock = (stockRow: StockRow) => {
-    setAddStockItem(stockRow)
-    setAddStockQty('')
-    setShowAddStock(true)
-  }
-
   const handleAddStock = async () => {
     if (!addStockItem || !addStockQty) return
     const qty = parseInt(addStockQty)
@@ -210,7 +288,7 @@ export default function OrdersPage() {
     const { error } = await supabase
       .from('shift_stock')
       .update({
-        opening_qty:   addStockItem.opening_qty + qty,
+        opening_qty: addStockItem.opening_qty + qty,
         remaining_qty: addStockItem.remaining_qty + qty,
       })
       .eq('id', addStockItem.id)
@@ -221,16 +299,15 @@ export default function OrdersPage() {
       return
     }
 
-    // Log the top-up as a shift activity
     const today = new Date().toISOString().split('T')[0]
     const session = sessionRef.current
     await supabase.from('shift_activities').insert({
-      shift_date:     today,
-      shift_id:       shift.shift_id,
-      staff_id:       session.id,
-      staff_name:     `${session.first_name} ${session.surname}`,
-      staff_role:     session.role,
-      action_type:    'ADD_STOCK',
+      shift_date: today,
+      shift_id: shift.shift_id,
+      staff_id: session.id,
+      staff_name: `${session.first_name} ${session.surname}`,
+      staff_role: session.role,
+      action_type: 'ADD_STOCK',
       action_details: {
         item_name: addStockItem.item_name,
         qty_added: qty,
@@ -250,12 +327,9 @@ export default function OrdersPage() {
     ? menuItems
     : menuItems.filter(i => i.category === selectedCategory)
 
+  // Show skeleton while loading
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <OrdersPageSkeleton />
   }
 
   return (
@@ -263,14 +337,12 @@ export default function OrdersPage() {
       className="min-h-screen bg-bg-subtle"
       style={{ paddingBottom: cartCount > 0 ? '148px' : '88px' }}
     >
-
       {/* Sticky category strip */}
       <div className="bg-white border-b border-border sticky top-14 z-10">
         <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
           <p className="t-small text-text-muted">
             {activeShiftRef.current?.shifts?.name} Shift
           </p>
-          {/* Add stock button */}
           <button
             onClick={() => setShowAddStock(true)}
             className="flex items-center gap-1.5 text-primary t-small font-medium min-h-0 min-w-0 py-1"
@@ -306,12 +378,12 @@ export default function OrdersPage() {
           </div>
         ) : (
           filteredItems.map(item => {
-            const cartItem   = cart.find(c => c.id === item.id)
-            const inCart     = !!cartItem
-            const remaining  = getRemainingAfterCart(item.id)
+            const cartItem = cart.find(c => c.id === item.id)
+            const inCart = !!cartItem
+            const remaining = getRemainingAfterCart(item.id)
             const stockTotal = stockMap[item.id] ?? 0
             const outOfStock = stockTotal <= 0
-            const maxedOut   = remaining <= 0 && inCart
+            const maxedOut = remaining <= 0 && inCart
 
             return (
               <button
@@ -327,14 +399,12 @@ export default function OrdersPage() {
                 }`}
                 style={{ minHeight: '100px' }}
               >
-                {/* Cart qty badge */}
                 {inCart && !outOfStock && (
                   <span className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white text-[11px] font-semibold flex items-center justify-center">
                     {cartItem!.quantity}
                   </span>
                 )}
 
-                {/* Out of stock badge */}
                 {outOfStock && (
                   <span className="absolute top-3 right-3 bg-border text-text-muted text-[10px] font-medium px-2 py-0.5 rounded-full">
                     Out
@@ -494,7 +564,6 @@ export default function OrdersPage() {
               </div>
             </div>
 
-            {/* Item selector — if no item selected yet */}
             {!addStockItem ? (
               <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-border">
                 {stockRows.length === 0 ? (
@@ -529,9 +598,7 @@ export default function OrdersPage() {
                 )}
               </div>
             ) : (
-              /* Qty input — once item is selected */
               <div className="px-5 py-6 space-y-5 flex-1">
-                {/* Selected item summary */}
                 <div className="bg-primary/5 border border-primary/20 rounded-[14px] p-4">
                   <p className="t-h3 text-primary">{addStockItem.item_name}</p>
                   <div className="flex gap-4 mt-2">
@@ -555,12 +622,16 @@ export default function OrdersPage() {
                     How many to add?
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={addStockQty}
-                    onChange={(e) => setAddStockQty(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9]/g, '')
+                      setAddStockQty(value)
+                    }}
                     className="input-base text-center text-2xl font-semibold"
                     placeholder="0"
-                    inputMode="numeric"
                     min="1"
                     autoFocus
                   />
@@ -594,7 +665,6 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
-
     </div>
   )
 }

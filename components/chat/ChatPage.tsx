@@ -61,10 +61,12 @@ export default function ChatPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [usersCache, setUsersCache] = useState<Record<string, string>>({})
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const usersCacheRef = useRef<Record<string, string>>({})
 
   const scrollToBottom = useCallback((smooth = true) => {
@@ -72,6 +74,21 @@ export default function ChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
     }, 50)
   }, [])
+
+  // Detect keyboard visibility on mobile
+  useEffect(() => {
+    const handleResize = () => {
+      // On mobile, when keyboard opens, viewport height changes
+      const isKeyboardOpen = window.innerHeight < (window.screen.height * 0.75)
+      setKeyboardVisible(isKeyboardOpen)
+      if (isKeyboardOpen) {
+        setTimeout(scrollToBottom, 100)
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [scrollToBottom])
 
   const getUserName = useCallback(async (userId: string) => {
     if (usersCacheRef.current[userId]) return usersCacheRef.current[userId]
@@ -246,6 +263,7 @@ export default function ChatPage() {
     setSelectedFile(null)
     setUploadingImage(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
+    scrollToBottom()
   }
 
   const cancelImage = () => {
@@ -258,7 +276,7 @@ export default function ChatPage() {
 
   if (loading) {
     return (
-      <div className="h-screen flex flex-col" style={{ background: '#ECE5DD' }}>
+      <div className="h-[100dvh] flex flex-col" style={{ background: '#ECE5DD' }}>
         <div className="flex-1 flex items-center justify-center">
           <div className="w-7 h-7 border-[3px] border-white/40 border-t-white rounded-full animate-spin" />
         </div>
@@ -267,9 +285,12 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="h-[100dvh] flex flex-col overflow-hidden" style={{ background: '#ECE5DD' }}>
-
-      {/* Messages area */}
+    <div 
+      ref={containerRef}
+      className="h-[100dvh] flex flex-col overflow-hidden" 
+      style={{ background: '#ECE5DD' }}
+    >
+      {/* Messages area - flex-1 to take remaining space */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {messages.length === 0 && (
           <div className="text-center mt-16">
@@ -351,7 +372,7 @@ export default function ChatPage() {
       {/* Image preview overlay */}
       {previewImage && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
-          <div className="flex justify-between items-center px-4 py-3 bg-black/80">
+          <div className="flex justify-between items-center px-4 py-3 bg-black/80 safe-top">
             <button
               onClick={cancelImage}
               className="text-white min-h-0 min-w-0 w-10 h-10 flex items-center justify-center"
@@ -368,7 +389,7 @@ export default function ChatPage() {
               className="max-w-full max-h-full object-contain rounded-[8px]"
             />
           </div>
-          <div className="px-4 pb-6 pt-3 bg-black/80">
+          <div className="px-4 pb-6 pt-3 bg-black/80 safe-bottom">
             <button
               onClick={sendImage}
               disabled={uploadingImage}
@@ -381,14 +402,17 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Input bar */}
-      <div
+      {/* Input bar - FIXED: Better keyboard handling */}
+      <div 
         className="flex-shrink-0 px-2 py-2 flex items-end gap-2"
-        style={{ background: '#ECE5DD' }}
+        style={{ 
+          background: '#ECE5DD',
+          paddingBottom: keyboardVisible ? '8px' : 'max(8px, env(safe-area-inset-bottom, 8px))'
+        }}
       >
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="w-10 h-10 min-h-0 min-w-0 rounded-full bg-white flex items-center justify-center text-text-secondary flex-shrink-0 shadow-sm"
+          className="w-10 h-10 min-h-0 min-w-0 rounded-full bg-white flex items-center justify-center text-text-secondary flex-shrink-0 shadow-sm active:scale-95 transition-transform"
         >
           <ImageIcon size={20} />
         </button>
@@ -421,7 +445,7 @@ export default function ChatPage() {
         <button
           onClick={sendTextMessage}
           disabled={!newMessage.trim() || sending}
-          className="w-10 h-10 min-h-0 min-w-0 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm disabled:opacity-50 transition-colors"
+          className="w-10 h-10 min-h-0 min-w-0 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm disabled:opacity-50 transition-colors active:scale-95 transform"
           style={{ background: newMessage.trim() ? '#00A884' : '#B0BEC5' }}
         >
           <Send size={18} className="text-white" />

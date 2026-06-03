@@ -55,8 +55,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toast }}>
       {children}
 
-      {/* Toast container */}
-      <div className="fixed top-4 left-0 right-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none">
+      {/* Toast container - FIXED: Added safe area insets */}
+      <div 
+        className="fixed left-0 right-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none"
+        style={{ 
+          top: 'max(1rem, env(safe-area-inset-top, 1rem))',
+        }}
+      >
         {toasts.map(t => (
           <div
             key={t.id}
@@ -71,10 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <span className={`${iconColors[t.type]} t-label mt-0.5 flex-shrink-0`}>
               {icons[t.type]}
             </span>
-            <p className="t-body text-text-primary flex-1">{t.message}</p>
+            <p className="t-body text-text-primary flex-1 break-words">{t.message}</p>
             <button
               onClick={() => remove(t.id)}
-              className="text-text-muted hover:text-text-primary flex-shrink-0 min-h-0 min-w-0 w-5 h-5"
+              className="text-text-muted hover:text-text-primary flex-shrink-0 min-h-0 min-w-0 w-5 h-5 flex items-center justify-center rounded-full"
+              aria-label="Close notification"
             >
               ✕
             </button>

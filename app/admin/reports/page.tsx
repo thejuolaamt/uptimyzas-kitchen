@@ -172,7 +172,7 @@ export default function AdminReportsPage() {
 
   return (
     <div className="min-h-screen bg-bg-subtle">
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <h1 className="t-h1 text-text-primary mb-6">Shift Reports</h1>
 
         {/* Summary cards */}
@@ -185,7 +185,7 @@ export default function AdminReportsPage() {
           ].map(({ label, value, color }) => (
             <div key={label} className="card text-center">
               <p className="t-small text-text-muted uppercase tracking-widest mb-1">{label}</p>
-              <p className={`t-h1 ${color}`}>{value}</p>
+              <p className={`t-h1 ${color} text-base sm:text-xl md:text-2xl lg:text-3xl`}>{value}</p>
             </div>
           ))}
         </div>
@@ -196,7 +196,7 @@ export default function AdminReportsPage() {
             <Calendar size={16} className="text-text-secondary" />
             <p className="t-h3 text-text-primary">Filters</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="block t-label text-text-primary mb-1">Start Date</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input-base" />
@@ -227,52 +227,56 @@ export default function AdminReportsPage() {
           </div>
         )}
 
-        {/* Table */}
-        <div className="bg-white rounded-[10px] border border-border overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-bg-subtle border-b border-border">
-              <tr>
-                {['Date', 'Shift', 'Orders', 'Revenue', 'Expenses', 'Profit', 'Variance', 'Opened By', 'Closed By'].map(h => (
-                  <th key={h} className={`p-3 t-label text-text-secondary whitespace-nowrap ${['Orders', 'Revenue', 'Expenses', 'Profit', 'Variance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {reports.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="text-center p-10 t-body text-text-muted">No closed shifts found</td>
-                </tr>
-              ) : (
-                reports.map((r, idx) => (
-                  <tr key={idx} className="border-b border-border hover:bg-bg-subtle">
-                    <td className="p-3 t-mono text-text-secondary">{r.shift_date}</td>
-                    <td className="p-3 t-body text-text-primary font-medium">{r.shift_name}</td>
-                    <td className="p-3 t-mono text-right">{r.order_count}</td>
-                    <td className="p-3 t-mono text-[#2E7D32] text-right">₦{r.total_revenue.toLocaleString()}</td>
-                    <td className="p-3 t-mono text-danger text-right">₦{r.total_expenses.toLocaleString()}</td>
-                    <td className={`p-3 t-mono text-right font-medium ${r.net_profit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{r.net_profit.toLocaleString()}</td>
-                    <td className={`p-3 t-mono text-right ${r.total_variance > 0 ? 'text-[#2E7D32]' : r.total_variance < 0 ? 'text-danger' : 'text-text-muted'}`}>
-                      {r.total_variance > 0 ? `+${r.total_variance}` : r.total_variance}
-                    </td>
-                    <td className="p-3 t-small text-text-secondary">{r.opener_name}</td>
-                    <td className="p-3 t-small text-text-secondary">{r.closer_name}</td>
+        {/* Table with horizontal scroll - FIXED */}
+        <div className="bg-white rounded-[10px] border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <div className="min-w-[800px]">
+              <table className="w-full">
+                <thead className="bg-bg-subtle border-b border-border">
+                  <tr>
+                    {['Date', 'Shift', 'Orders', 'Revenue', 'Expenses', 'Profit', 'Variance', 'Opened By', 'Closed By'].map(h => (
+                      <th key={h} className={`p-3 t-label text-text-secondary whitespace-nowrap ${['Orders', 'Revenue', 'Expenses', 'Profit', 'Variance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
                   </tr>
-                ))
-              )}
-            </tbody>
-            {reports.length > 0 && (
-              <tfoot className="bg-bg-subtle border-t border-border">
-                <tr>
-                  <td colSpan={2} className="p-3 t-label text-text-primary">Total</td>
-                  <td className="p-3 t-mono text-right">{stats.totalOrders}</td>
-                  <td className="p-3 t-mono text-[#2E7D32] text-right">₦{stats.totalRevenue.toLocaleString()}</td>
-                  <td className="p-3 t-mono text-danger text-right">₦{stats.totalExpenses.toLocaleString()}</td>
-                  <td className={`p-3 t-mono text-right font-medium ${stats.totalProfit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{stats.totalProfit.toLocaleString()}</td>
-                  <td colSpan={3} className="p-3"></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
+                </thead>
+                <tbody>
+                  {reports.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="text-center p-10 t-body text-text-muted">No closed shifts found</td>
+                    </tr>
+                  ) : (
+                    reports.map((r, idx) => (
+                      <tr key={idx} className="border-b border-border hover:bg-bg-subtle">
+                        <td className="p-3 t-mono text-text-secondary whitespace-nowrap">{r.shift_date}</td>
+                        <td className="p-3 t-body text-text-primary font-medium whitespace-nowrap">{r.shift_name}</td>
+                        <td className="p-3 t-mono text-right">{r.order_count}</td>
+                        <td className="p-3 t-mono text-[#2E7D32] text-right whitespace-nowrap">₦{r.total_revenue.toLocaleString()}</td>
+                        <td className="p-3 t-mono text-danger text-right whitespace-nowrap">₦{r.total_expenses.toLocaleString()}</td>
+                        <td className={`p-3 t-mono text-right font-medium whitespace-nowrap ${r.net_profit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{r.net_profit.toLocaleString()}</td>
+                        <td className={`p-3 t-mono text-right whitespace-nowrap ${r.total_variance > 0 ? 'text-[#2E7D32]' : r.total_variance < 0 ? 'text-danger' : 'text-text-muted'}`}>
+                          {r.total_variance > 0 ? `+${r.total_variance}` : r.total_variance}
+                        </td>
+                        <td className="p-3 t-small text-text-secondary whitespace-nowrap">{r.opener_name}</td>
+                        <td className="p-3 t-small text-text-secondary whitespace-nowrap">{r.closer_name}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {reports.length > 0 && (
+                  <tfoot className="bg-bg-subtle border-t border-border">
+                    <tr>
+                      <td colSpan={2} className="p-3 t-label text-text-primary">Total</td>
+                      <td className="p-3 t-mono text-right">{stats.totalOrders}</td>
+                      <td className="p-3 t-mono text-[#2E7D32] text-right whitespace-nowrap">₦{stats.totalRevenue.toLocaleString()}</td>
+                      <td className="p-3 t-mono text-danger text-right whitespace-nowrap">₦{stats.totalExpenses.toLocaleString()}</td>
+                      <td className={`p-3 t-mono text-right font-medium whitespace-nowrap ${stats.totalProfit >= 0 ? 'text-[#2E7D32]' : 'text-danger'}`}>₦{stats.totalProfit.toLocaleString()}</td>
+                      <td colSpan={3} className="p-3"></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
