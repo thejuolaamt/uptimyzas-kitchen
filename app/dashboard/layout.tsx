@@ -1,12 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  Home, ShoppingBag, X,
-  Package, Wallet, History,
-  MessageCircle, User, Users,
-  LogOut, Menu
+  LayoutDashboard, ShoppingBag, Clock,
+  Package, Receipt, Users, Settings,
+  LogOut, Menu, MessageCircle, X
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
 
@@ -19,25 +18,35 @@ export default function DashboardLayout({
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
+  // Debug: log pathname to console
+  useEffect(() => {
+    console.log('DashboardLayout - Current pathname:', pathname)
+  }, [pathname])
+
+  // Check for chat page with or without trailing slash
+  const isChatPage = pathname === '/dashboard/chat' || pathname === '/dashboard/chat/' || pathname?.includes('/chat')
+
   const bottomNav = [
-    { name: 'Home',   icon: Home,        path: '/dashboard' },
+    { name: 'Home', icon: LayoutDashboard, path: '/dashboard' },
     { name: 'Orders', icon: ShoppingBag, path: '/dashboard/orders' },
+    { name: 'Chat', icon: MessageCircle, path: '/dashboard/chat' },
   ]
 
   const drawerItems = [
-    { name: 'Stock',    icon: Package,       path: '/dashboard/stock' },
-    { name: 'Expenses', icon: Wallet,        path: '/dashboard/expenses' },
-    { name: 'History',  icon: History,       path: '/dashboard/history' },
-    { name: 'Activity', icon: Users,         path: '/dashboard/shift-activities' },
-    { name: 'Chat',     icon: MessageCircle, path: '/dashboard/chat' },
-    { name: 'Profile',  icon: User,          path: '/dashboard/profile' },
+    { name: 'Stock Board', icon: Package, path: '/dashboard/stock-board' },
+    { name: 'Expenses', icon: Receipt, path: '/dashboard/expenses' },
+    { name: 'Activities', icon: Clock, path: '/dashboard/shift-activities' },
+    { name: 'Profile', icon: Users, path: '/dashboard/profile' },
+    { name: 'Order History', icon: Receipt, path: '/dashboard/order-history' },
   ]
 
-  const allPaths = [...bottomNav, ...drawerItems]
+  const allItems = [...bottomNav, ...drawerItems]
 
   const getPageTitle = () => {
     if (pathname === '/dashboard') return null
-    return allPaths.find(i => i.path === pathname)?.name || ''
+    if (isChatPage) return null
+    const item = allItems.find(i => i.path === pathname)
+    return item?.name || 'Staff'
   }
 
   const pageTitle = getPageTitle()
@@ -52,11 +61,20 @@ export default function DashboardLayout({
     router.push('/auth/login')
   }
 
-  return (
-    <div className="min-h-screen bg-bg-subtle">
+  // For chat page - render WITHOUT any navigation
+  if (isChatPage) {
+    console.log('Rendering dashboard chat page with NO navigation')
+    return (
+      <div className="min-h-screen w-full">
+        {children}
+      </div>
+    )
+  }
 
+  return (
+    <div className="h-screen flex flex-col bg-bg-subtle overflow-hidden">
       {/* Top bar */}
-      <div className="top-bar">
+      <div className="top-bar fixed top-0 left-0 right-0 z-20 bg-white flex-shrink-0">
         {pageTitle ? (
           <>
             <button
@@ -78,13 +96,55 @@ export default function DashboardLayout({
         )}
       </div>
 
-      {/* Page content */}
-      <div className="pt-14 pb-20">
+      {/* Desktop layout */}
+      <div className="hidden md:flex flex-1 pt-14 overflow-hidden">
+        {/* Sidebar - fixed, doesn't scroll */}
+        <aside className="w-56 bg-white border-r border-border flex-shrink-0 overflow-y-auto">
+          <div className="flex flex-col h-full">
+            <div className="flex-1 px-3 py-4 space-y-0.5">
+              {allItems.map(({ name, icon: Icon, path }) => {
+                const isActive = pathname === path
+                return (
+                  <button
+                    key={path}
+                    onClick={() => navigate(path)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] transition-colors min-h-0 ${
+                      isActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-text-secondary hover:bg-bg-subtle hover:text-text-primary'
+                    }`}
+                  >
+                    <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
+                    <span className="t-body font-medium">{name}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-3 pb-6 border-t border-border pt-3">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-danger hover:bg-danger/5 transition-colors min-h-0"
+              >
+                <LogOut size={18} />
+                <span className="t-body font-medium">Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main content - THIS SCROLLS */}
+        <main className="flex-1 min-w-0 overflow-y-auto">
+          {children}
+        </main>
+      </div>
+
+      {/* Mobile content */}
+      <div className="md:hidden flex-1 pt-14 pb-20 overflow-y-auto">
         {children}
       </div>
 
-      {/* Bottom nav */}
-      <div className="bottom-nav">
+      {/* Mobile bottom nav */}
+      <div className="md:hidden bottom-nav fixed bottom-0 left-0 right-0 z-20 bg-white">
         {bottomNav.map(({ name, icon: Icon, path }) => {
           const isActive = pathname === path
           return (
@@ -104,7 +164,6 @@ export default function DashboardLayout({
           )
         })}
 
-        {/* Hamburger */}
         <button
           onClick={() => setMenuOpen(true)}
           className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-8 pb-1 pt-2 relative transition-colors ${
@@ -122,13 +181,13 @@ export default function DashboardLayout({
       {/* Drawer overlay */}
       {menuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/30"
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
           onClick={() => setMenuOpen(false)}
         />
       )}
 
       {/* Drawer */}
-      <div className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[24px] transition-transform duration-300 ease-out ${
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[24px] transition-transform duration-300 ease-out ${
         menuOpen ? 'translate-y-0' : 'translate-y-full'
       }`}>
         <div className="w-10 h-1 rounded-full bg-border mx-auto mt-3 mb-1" />
@@ -143,7 +202,7 @@ export default function DashboardLayout({
           </button>
         </div>
 
-        <div className="px-4 py-4 grid grid-cols-3 gap-2">
+        <div className="px-4 py-4 grid grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto">
           {drawerItems.map(({ name, icon: Icon, path }) => {
             const isActive = pathname === path
             return (

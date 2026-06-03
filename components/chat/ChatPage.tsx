@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Send, Image as ImageIcon, X, CheckCheck } from 'lucide-react'
+import { Send, Image as ImageIcon, X, CheckCheck, ArrowLeft } from 'lucide-react'
 
 type ChatMessage = {
   id: string
@@ -66,7 +66,6 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
   const usersCacheRef = useRef<Record<string, string>>({})
 
   const scrollToBottom = useCallback((smooth = true) => {
@@ -78,7 +77,6 @@ export default function ChatPage() {
   // Detect keyboard visibility on mobile
   useEffect(() => {
     const handleResize = () => {
-      // On mobile, when keyboard opens, viewport height changes
       const isKeyboardOpen = window.innerHeight < (window.screen.height * 0.75)
       setKeyboardVisible(isKeyboardOpen)
       if (isKeyboardOpen) {
@@ -272,25 +270,53 @@ export default function ChatPage() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const handleBack = () => {
+    router.back()
+  }
+
   const groupedMessages = groupMessagesByDate(messages)
 
   if (loading) {
     return (
-      <div className="h-[100dvh] flex flex-col" style={{ background: '#ECE5DD' }}>
+      <div className="h-[100dvh] flex flex-col bg-[#ECE5DD]">
+        <div className="flex items-center gap-3 px-4 py-3 bg-primary text-white safe-top">
+          <button
+            onClick={handleBack}
+            className="w-10 h-10 min-h-0 min-w-0 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+          >
+            <ArrowLeft size={22} />
+          </button>
+          <div>
+            <p className="t-h3 text-white">Kitchen Chat</p>
+            <p className="t-small text-white/70">Loading...</p>
+          </div>
+        </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="w-7 h-7 border-[3px] border-white/40 border-t-white rounded-full animate-spin" />
+          <div className="w-7 h-7 border-[3px] border-primary/30 border-t-primary rounded-full animate-spin" />
         </div>
       </div>
     )
   }
 
   return (
-    <div 
-      ref={containerRef}
-      className="h-[100dvh] flex flex-col overflow-hidden" 
-      style={{ background: '#ECE5DD' }}
-    >
-      {/* Messages area - flex-1 to take remaining space */}
+    <div className="h-[100dvh] flex flex-col bg-[#ECE5DD]">
+      {/* Custom Header with Back Button */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-primary text-white safe-top flex-shrink-0">
+        <button
+          onClick={handleBack}
+          className="w-10 h-10 min-h-0 min-w-0 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors active:scale-95"
+        >
+          <ArrowLeft size={22} />
+        </button>
+        <div>
+          <p className="t-h3 text-white">Kitchen Chat</p>
+          <p className="t-small text-white/70">
+            {messages.length} messages
+          </p>
+        </div>
+      </div>
+
+      {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {messages.length === 0 && (
           <div className="text-center mt-16">
@@ -402,11 +428,10 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Input bar - FIXED: Better keyboard handling */}
+      {/* Input bar */}
       <div 
-        className="flex-shrink-0 px-2 py-2 flex items-end gap-2"
+        className="flex-shrink-0 px-2 py-2 flex items-end gap-2 bg-[#ECE5DD] safe-bottom"
         style={{ 
-          background: '#ECE5DD',
           paddingBottom: keyboardVisible ? '8px' : 'max(8px, env(safe-area-inset-bottom, 8px))'
         }}
       >
@@ -436,7 +461,7 @@ export default function ChatPage() {
                 sendTextMessage()
               }
             }}
-            placeholder="Message"
+            placeholder="Type a message..."
             className="flex-1 bg-transparent outline-none t-body text-text-primary placeholder:text-text-muted"
             disabled={sending}
           />
@@ -451,7 +476,6 @@ export default function ChatPage() {
           <Send size={18} className="text-white" />
         </button>
       </div>
-
     </div>
   )
 }

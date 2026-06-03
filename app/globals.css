@@ -88,6 +88,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+  height: 100%;
 }
 
 body {
@@ -100,6 +101,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  height: 100%;
 }
 
 /* ── TYPE CLASSES ───────────────────────────────── */
@@ -644,28 +646,23 @@ select:focus {
   border-bottom: 1px solid var(--color-border);
 }
 
-/* ── PULL-TO-REFRESH FIX ──────────────────────────────── */
-/* Prevents native pull-to-refresh on the entire app */
-html,
-body {
+/* ── PULL-TO-REFRESH FIX (CORRECTED - NO SCROLLING BREAK) ── */
+/* Only prevent pull-to-refresh, maintain normal scrolling */
+
+html {
   overscroll-behavior-y: none;
-  overscroll-behavior-x: none;
 }
 
-/* For iOS - prevents rubber-band scrolling at the edges */
 body {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  /* REMOVED: position fixed and overflow hidden - they break scrolling */
 }
 
-/* Allow scrolling within specific containers while preventing pull-to-refresh */
-.scroll-container {
+/* Allow normal scrolling on all pages */
+.page-scroll {
   overscroll-behavior-y: contain;
+  height: 100%;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -677,29 +674,27 @@ body {
   overflow-y: auto;
 }
 
-/* For pages that need normal scrolling but no pull-to-refresh */
-.page-scroll {
-  overscroll-behavior-y: contain;
+/* Ensure main app container scrolls properly */
+#__next {
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-}
-
-/* Main app container - ensures proper scrolling behavior */
-#__next,
-.main-app {
-  overscroll-behavior: none;
-  height: 100%;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* Disable pull-to-refresh on all scrollable elements by default */
-* {
-  overscroll-behavior-y: contain;
 }
 
 /* Re-enable for elements that intentionally need rubber-band effect */
 .allow-rubber-band {
   overscroll-behavior-y: auto;
+}
+
+/* Ensure chat page takes full screen without any interference */
+.chat-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+  background: #ECE5DD;
 }

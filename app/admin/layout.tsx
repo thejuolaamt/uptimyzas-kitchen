@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, X,
@@ -18,6 +18,14 @@ export default function AdminLayout({
   const pathname = usePathname()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // Debug: log pathname to console
+  useEffect(() => {
+    console.log('AdminLayout - Current pathname:', pathname)
+  }, [pathname])
+
+  // Check for chat page with or without trailing slash
+  const isChatPage = pathname === '/admin/chat' || pathname === '/admin/chat/' || pathname?.includes('/chat')
 
   const bottomNav = [
     { name: 'Overview', icon: LayoutDashboard, path: '/admin' },
@@ -37,6 +45,7 @@ export default function AdminLayout({
 
   const getPageTitle = () => {
     if (pathname === '/admin') return null
+    if (isChatPage) return null
     return allItems.find(i => i.path === pathname)?.name || 'Admin'
   }
 
@@ -52,11 +61,21 @@ export default function AdminLayout({
     router.push('/auth/login')
   }
 
-  return (
-    <div className="min-h-screen bg-bg-subtle">
+  // For chat page - render WITHOUT any navigation (full screen, no bars)
+  if (isChatPage) {
+    console.log('Rendering admin chat page with NO navigation')
+    return (
+      <div className="min-h-screen w-full">
+        {children}
+      </div>
+    )
+  }
 
+  // For all other pages - show full navigation
+  return (
+    <div className="h-screen flex flex-col bg-bg-subtle overflow-hidden">
       {/* Top bar */}
-      <div className="top-bar fixed top-0 left-0 right-0 z-20 bg-white">
+      <div className="top-bar fixed top-0 left-0 right-0 z-20 bg-white flex-shrink-0">
         {pageTitle ? (
           <>
             <button
@@ -78,10 +97,10 @@ export default function AdminLayout({
         )}
       </div>
 
-      {/* Desktop layout - FIXED */}
-      <div className="hidden md:flex">
-        {/* Sidebar - fixed positioning with top offset */}
-        <aside className="fixed top-14 left-0 bottom-0 w-56 bg-white border-r border-border overflow-y-auto z-10">
+      {/* Desktop layout */}
+      <div className="hidden md:flex flex-1 pt-14 overflow-hidden">
+        {/* Sidebar - fixed, doesn't scroll */}
+        <aside className="w-56 bg-white border-r border-border flex-shrink-0 overflow-y-auto">
           <div className="flex flex-col h-full">
             <div className="flex-1 px-3 py-4 space-y-0.5">
               {allItems.map(({ name, icon: Icon, path }) => {
@@ -114,14 +133,14 @@ export default function AdminLayout({
           </div>
         </aside>
 
-        {/* Main content - offset by sidebar width AND top bar height */}
-        <main className="flex-1 ml-56 mt-14 min-h-screen min-w-0">
+        {/* Main content - THIS SCROLLS */}
+        <main className="flex-1 min-w-0 overflow-y-auto">
           {children}
         </main>
       </div>
 
       {/* Mobile content */}
-      <div className="md:hidden pt-14 pb-20">
+      <div className="md:hidden flex-1 pt-14 pb-20 overflow-y-auto">
         {children}
       </div>
 
