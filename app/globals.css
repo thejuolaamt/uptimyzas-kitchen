@@ -646,8 +646,8 @@ select:focus {
   border-bottom: 1px solid var(--color-border);
 }
 
-/* ── PULL-TO-REFRESH FIX (CORRECTED - NO SCROLLING BREAK) ── */
-/* Only prevent pull-to-refresh, maintain normal scrolling */
+/* ── PULL-TO-REFRESH FIX (LESS AGGRESSIVE) ──────────────── */
+/* Only prevent pull-to-refresh, don't break scrolling */
 
 html {
   overscroll-behavior-y: none;
@@ -655,10 +655,10 @@ html {
 
 body {
   overscroll-behavior-y: contain;
-  /* REMOVED: position fixed and overflow hidden - they break scrolling */
+  /* Normal scrolling - no position fixed or overflow hidden */
 }
 
-/* Allow normal scrolling on all pages */
+/* For pages that need custom scroll containers */
 .page-scroll {
   overscroll-behavior-y: contain;
   height: 100%;
@@ -666,7 +666,39 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* For modals and drawers that need their own scrolling */
+/* Refreshing indicator animation */
+.refreshing {
+  position: relative;
+}
+
+.refreshing::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--color-primary);
+  animation: refresh-progress 0.8s ease-in-out infinite;
+  z-index: 100;
+}
+
+@keyframes refresh-progress {
+  0% {
+    width: 0%;
+    opacity: 1;
+  }
+  50% {
+    width: 50%;
+    opacity: 0.8;
+  }
+  100% {
+    width: 100%;
+    opacity: 0;
+  }
+}
+
+/* For modals and drawers */
 .modal-scroll {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;

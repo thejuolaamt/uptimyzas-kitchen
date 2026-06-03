@@ -42,7 +42,6 @@ type StockRow = {
 function OrdersPageSkeleton() {
   return (
     <div className="min-h-screen bg-bg-subtle">
-      {/* Category strip skeleton */}
       <div className="bg-white border-b border-border sticky top-14 z-10">
         <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
           <div className="skeleton h-5 w-24 rounded" />
@@ -56,8 +55,6 @@ function OrdersPageSkeleton() {
           </div>
         </div>
       </div>
-
-      {/* Menu grid skeleton */}
       <div className="px-4 pt-4 grid grid-cols-2 gap-3">
         {[1, 2, 3, 4, 5, 6].map(i => (
           <div key={i} className="bg-white rounded-[18px] border border-border p-4" style={{ minHeight: '100px' }}>
@@ -87,6 +84,7 @@ export default function OrdersPage() {
   const [stockMap, setStockMap] = useState<StockMap>({})
   const [stockRows, setStockRows] = useState<StockRow[]>([])
   const [showCart, setShowCart] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [showAddStock, setShowAddStock] = useState(false)
   const [addStockItem, setAddStockItem] = useState<StockRow | null>(null)
@@ -95,7 +93,6 @@ export default function OrdersPage() {
 
   const activeShiftRef = useRef<any>(null)
   const sessionRef = useRef<any>(null)
-  const channelRef = useRef<any>(null)
 
   useEffect(() => {
     const userSession = getSession()
@@ -109,56 +106,68 @@ export default function OrdersPage() {
     if (saved) setCart(JSON.parse(saved))
 
     init()
-
-    return () => {
-      // Cleanup channel on unmount
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
-      }
-    }
   }, [router])
 
   const init = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    
-    const { data, error } = await supabase
-      .from('shift_sessions')
-      .select('*, shifts(*)')
-      .eq('shift_date', today)
-      .eq('status', 'open')
-      .maybeSingle()
+    try {
+      setError(null)
+      const today = new Date().toISOString().split('T')[0]
+      console.log('Today date:', today)
+      
+      const { data, error } = await supabase
+        .from('shift_sessions')
+        .select('*, shifts(*)')
+        .eq('shift_date', today)
+        .eq('status', 'open')
+        .maybeSingle()
 
-    if (error) {
-      console.error('Error fetching shift:', error)
-      toast('Error loading shift: ' + error.message, 'error')
-      router.push('/dashboard')
-      return
+      if (error) {
+        console.error('Error fetching shift:', error)
+        setError('Error loading shift: ' + error.message)
+        toast('Error loading shift: ' + error.message, 'error')
+        router.push('/dashboard')
+        return
+      }
+
+      if (!data) {
+        console.log('No active shift found for today')
+        setError('No active shift. Please open a shift first.')
+        toast('No active shift. Please open a shift first.', 'warning')
+        router.push('/dashboard')
+        return
+      }
+
+      console.log('Active shift found:', data)
+      console.log('Shift ID:', data.shift_id)
+      activeShiftRef.current = data
+
+      await fetchMenuItems()
+      await fetchStock(data.shift_id)
+      
+      setLoading(false)
+    } catch (err) {
+      console.error('Init error:', err)
+      setError('Failed to load orders page')
+      toast('Failed to load orders page', 'error')
+      setLoading(false)
     }
-
-    if (!data) {
-      toast('No active shift. Please open a shift first.', 'warning')
-      router.push('/dashboard')
-      return
-    }
-
-    console.log('Active shift found:', data.shift_id)
-    activeShiftRef.current = data
-
-    await fetchMenuItems()
-    await fetchStock(data.shift_id)
-    setupStockSubscription(data.shift_id)
-    
-    setLoading(false)
   }
 
   const fetchMenuItems = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('menu_items')
       .select('*')
       .eq('available', true)
       .order('category', { ascending: true })
 
+    if (error) {
+      console.error('Error fetching menu:', error)
+      toast('Error loading menu', 'error')
+      return
+    }
+
     if (data) {
+      console.log('Menu items loaded:', data.length)
       setMenuItems(data)
       setCategories(['All', ...new Set(data.map(i => i.category))])
     }
@@ -166,6 +175,8 @@ export default function OrdersPage() {
 
   const fetchStock = async (shiftId: string) => {
     const today = new Date().toISOString().split('T')[0]
+    
+    console.log('Fetching stock for shift_id:', shiftId, 'date:', today)
     
     const { data, error } = await supabase
       .from('shift_stock')
@@ -175,7 +186,7 @@ export default function OrdersPage() {
 
     if (error) {
       console.error('Error fetching stock:', error)
-      toast('Error loading stock data', 'error')
+      toast('Error loading stock data: ' + error.message, 'error')
       return
     }
     
@@ -189,49 +200,9 @@ export default function OrdersPage() {
       console.log('Stock map created with', Object.keys(map).length, 'items')
     } else {
       console.warn('No stock records found for this shift!')
+      setError('No stock data found. Please close and reopen the shift.')
       toast('No stock data found. Please close and reopen the shift.', 'warning')
     }
-  }
-
-  const setupStockSubscription = (shiftId: string) => {
-    const today = new Date().toISOString().split('T')[0]
-    
-    // Clean up existing channel
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-      channelRef.current = null
-    }
-    
-    // Create the channel
-    const channel = supabase.channel(`stock-updates-${shiftId}`)
-    
-    // Add the listener
-    channel.on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'shift_stock',
-        filter: `shift_date=eq.${today}`,
-      },
-      (payload) => {
-        console.log('Stock update:', payload.new.item_name, payload.new.remaining_qty)
-        setStockMap(prev => ({
-          ...prev,
-          [payload.new.item_id]: payload.new.remaining_qty,
-        }))
-        setStockRows(prev =>
-          prev.map(r => r.item_id === payload.new.item_id ? { ...r, ...payload.new } : r)
-        )
-      }
-    )
-    
-    // Subscribe
-    channel.subscribe((status) => {
-      console.log('Stock subscription status:', status)
-    })
-    
-    channelRef.current = channel
   }
 
   const saveCart = (newCart: CartItem[]) => {
@@ -327,9 +298,26 @@ export default function OrdersPage() {
     ? menuItems
     : menuItems.filter(i => i.category === selectedCategory)
 
-  // Show skeleton while loading
   if (loading) {
     return <OrdersPageSkeleton />
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
+        <div className="card text-center max-w-sm">
+          <div className="text-danger text-4xl mb-3">⚠️</div>
+          <p className="t-h3 text-text-primary mb-2">Unable to load orders</p>
+          <p className="t-body text-text-secondary mb-4">{error}</p>
+          <button 
+            onClick={() => router.push('/dashboard')}
+            className="btn-primary w-full"
+          >
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -341,7 +329,7 @@ export default function OrdersPage() {
       <div className="bg-white border-b border-border sticky top-14 z-10">
         <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
           <p className="t-small text-text-muted">
-            {activeShiftRef.current?.shifts?.name} Shift
+            {activeShiftRef.current?.shifts?.name || 'No Shift'} Shift
           </p>
           <button
             onClick={() => setShowAddStock(true)}
