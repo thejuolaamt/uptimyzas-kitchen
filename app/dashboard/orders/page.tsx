@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
@@ -24,10 +24,6 @@ type CartItem = {
   quantity: number
 }
 
-type StockMap = {
-  [itemId: string]: number
-}
-
 type StockRow = {
   id: string
   item_id: string
@@ -36,41 +32,6 @@ type StockRow = {
   opening_qty: number
   sold_qty: number
   unit: string
-}
-
-// Orders Page Skeleton Component
-function OrdersPageSkeleton() {
-  return (
-    <div className="min-h-screen bg-bg-subtle">
-      <div className="bg-white border-b border-border sticky top-0 z-20">
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <div className="skeleton h-5 w-24 rounded" />
-          <div className="skeleton h-8 w-20 rounded-full" />
-        </div>
-        <div className="px-4 pb-3">
-          <div className="flex gap-2 overflow-x-auto">
-            {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="skeleton h-8 w-20 rounded-full flex-shrink-0" />
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="px-4 pt-4 pb-24 grid grid-cols-2 gap-3">
-        {[1, 2, 3, 4, 5, 6].map(i => (
-          <div key={i} className="bg-white rounded-[18px] border border-border p-4" style={{ minHeight: '100px' }}>
-            <div className="space-y-2">
-              <div className="skeleton h-6 w-32 rounded" />
-              <div className="skeleton h-4 w-20 rounded" />
-              <div className="flex justify-between items-center mt-2">
-                <div className="skeleton h-5 w-16 rounded" />
-                <div className="skeleton h-4 w-12 rounded" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 export default function OrdersPage() {
@@ -82,28 +43,29 @@ export default function OrdersPage() {
   const [categories, setCategories] = useState<string[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [cart, setCart] = useState<CartItem[]>([])
-  const [stockMap, setStockMap] = useState<StockMap>({})
+  const [stockMap, setStockMap] = useState<Record<string, number>>({})
   const [stockRows, setStockRows] = useState<StockRow[]>([])
   const [showCart, setShowCart] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [shiftName, setShiftName] = useState('')
+  const [shiftId, setShiftId] = useState<string>('')
 
+  // Add stock modal state
   const [showAddStock, setShowAddStock] = useState(false)
   const [addStockItem, setAddStockItem] = useState<StockRow | null>(null)
   const [addStockQty, setAddStockQty] = useState('')
   const [addingStock, setAddingStock] = useState(false)
 
-  const activeShiftRef = useRef<any>(null)
-  const sessionRef = useRef<any>(null)
-
-  // Safe navigation function to prevent router errors
-  const navigate = (path: string) => {
+  // Safe navigation function - prevents router errors
+  const navigate = useCallback((path: string) => {
     if (isRouterReady) {
       router.push(path)
     } else {
       window.location.href = path
     }
-  }
+  }, [isRouterReady, router])
 
+  // Set router ready
   useEffect(() => {
     setIsRouterReady(true)
   }, [])
@@ -116,108 +78,64 @@ export default function OrdersPage() {
       navigate('/auth/login')
       return
     }
-    sessionRef.current = userSession
+    loadData()
+  }, [isRouterReady, navigate])
 
-    const saved = localStorage.getItem('current_order_cart')
-    if (saved) setCart(JSON.parse(saved))
-
-    init()
-  }, [isRouterReady])
-
-  const init = async () => {
+  const loadData = async () => {
     try {
+      setLoading(true)
       setError(null)
-      const today = new Date().toISOString().split('T')[0]
-      console.log('Today date:', today)
       
-      const { data, error } = await supabase
+      const today = new Date().toISOString().split('T')[0]
+      
+      // Get active shift
+      const { data: shift, error: shiftError } = await supabase
         .from('shift_sessions')
         .select('*, shifts(*)')
         .eq('shift_date', today)
         .eq('status', 'open')
         .maybeSingle()
 
-      if (error) {
-        console.error('Error fetching shift:', error)
-        setError('Error loading shift: ' + error.message)
-        toast('Error loading shift: ' + error.message, 'error')
-        setLoading(false)
-        return
-      }
+      if (shiftError) throw new Error(shiftError.message)
+      if (!shift) throw new Error('No active shift. Please open a shift first.')
 
-      if (!data) {
-        console.log('No active shift found for today')
-        setError('No active shift. Please open a shift first.')
-        toast('No active shift. Please open a shift first.', 'warning')
-        setLoading(false)
-        return
-      }
+      setShiftName(shift.shifts?.name || 'Active')
+      setShiftId(shift.shift_id)
 
-      console.log('Active shift found:', data)
-      console.log('Shift ID:', data.shift_id)
-      activeShiftRef.current = data
+      // Get menu items
+      const { data: menu, error: menuError } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('available', true)
+        .order('category')
 
-      await fetchMenuItems()
-      await fetchStock(data.shift_id)
+      if (menuError) throw new Error(menuError.message)
+      setMenuItems(menu || [])
+      setCategories(['All', ...new Set(menu?.map(i => i.category) || [])])
+
+      // Get stock for this shift
+      const { data: stock, error: stockError } = await supabase
+        .from('shift_stock')
+        .select('*')
+        .eq('shift_date', today)
+        .eq('shift_id', shift.shift_id)
+
+      if (stockError) throw new Error(stockError.message)
       
+      setStockRows(stock || [])
+      const stockMapData: Record<string, number> = {}
+      stock?.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
+      setStockMap(stockMapData)
+
+      // Load saved cart
+      const saved = localStorage.getItem('current_order_cart')
+      if (saved) setCart(JSON.parse(saved))
+
+    } catch (err: any) {
+      console.error(err)
+      setError(err.message)
+    } finally {
       setLoading(false)
-    } catch (err) {
-      console.error('Init error:', err)
-      setError('Failed to load orders page')
-      toast('Failed to load orders page', 'error')
-      setLoading(false)
-    }
-  }
-
-  const fetchMenuItems = async () => {
-    const { data, error } = await supabase
-      .from('menu_items')
-      .select('*')
-      .eq('available', true)
-      .order('category', { ascending: true })
-
-    if (error) {
-      console.error('Error fetching menu:', error)
-      toast('Error loading menu', 'error')
-      return
-    }
-
-    if (data) {
-      console.log('Menu items loaded:', data.length)
-      setMenuItems(data)
-      setCategories(['All', ...new Set(data.map(i => i.category))])
-    }
-  }
-
-  const fetchStock = async (shiftId: string) => {
-    const today = new Date().toISOString().split('T')[0]
-    
-    console.log('Fetching stock for shift_id:', shiftId, 'date:', today)
-    
-    const { data, error } = await supabase
-      .from('shift_stock')
-      .select('id, item_id, item_name, remaining_qty, opening_qty, sold_qty, unit')
-      .eq('shift_date', today)
-      .eq('shift_id', shiftId)
-
-    if (error) {
-      console.error('Error fetching stock:', error)
-      toast('Error loading stock data: ' + error.message, 'error')
-      return
-    }
-    
-    console.log('Stock records found:', data?.length || 0)
-    
-    if (data && data.length > 0) {
-      setStockRows(data)
-      const map: StockMap = {}
-      data.forEach(row => { map[row.item_id] = row.remaining_qty })
-      setStockMap(map)
-      console.log('Stock map created with', Object.keys(map).length, 'items')
-    } else {
-      console.warn('No stock records found for this shift!')
-      setError('No stock data found. Please close and reopen the shift.')
-      toast('No stock data found. Please close and reopen the shift.', 'warning')
     }
   }
 
@@ -226,41 +144,48 @@ export default function OrdersPage() {
     setCart(newCart)
   }
 
-  const getRemainingAfterCart = (itemId: string) => {
-    const stock = stockMap[itemId] ?? 0
-    const inCart = cart.find(c => c.id === itemId)?.quantity ?? 0
+  const getRemainingStock = (itemId: string) => {
+    const stock = stockMap[itemId] || 0
+    const inCart = cart.find(c => c.id === itemId)?.quantity || 0
     return stock - inCart
   }
 
-  const tapItem = (item: MenuItem) => {
-    const remaining = getRemainingAfterCart(item.id)
+  const addToCart = (item: MenuItem) => {
+    const remaining = getRemainingStock(item.id)
     if (remaining <= 0) {
       toast(`${item.name} is out of stock`, 'warning')
       return
     }
+    
     const existing = cart.find(c => c.id === item.id)
-    const newCart = existing
-      ? cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c)
-      : [...cart, { id: item.id, name: item.name, price: item.price, unit: item.unit, quantity: 1 }]
-    saveCart(newCart)
+    if (existing) {
+      saveCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))
+    } else {
+      saveCart([...cart, { id: item.id, name: item.name, price: item.price, unit: item.unit, quantity: 1 }])
+    }
   }
 
-  const updateQty = (itemId: string, delta: number) => {
+  const updateQuantity = (itemId: string, delta: number) => {
+    const item = cart.find(c => c.id === itemId)
+    if (!item) return
+    
     if (delta > 0) {
-      const remaining = getRemainingAfterCart(itemId)
+      const remaining = getRemainingStock(itemId)
       if (remaining <= 0) {
-        toast('No more stock available for this item', 'warning')
+        toast('No more stock available', 'warning')
         return
       }
     }
-    const item = cart.find(c => c.id === itemId)
-    if (!item) return
-    const newCart = item.quantity + delta <= 0
-      ? cart.filter(c => c.id !== itemId)
-      : cart.map(c => c.id === itemId ? { ...c, quantity: c.quantity + delta } : c)
-    saveCart(newCart)
+    
+    const newQuantity = item.quantity + delta
+    if (newQuantity <= 0) {
+      saveCart(cart.filter(c => c.id !== itemId))
+    } else {
+      saveCart(cart.map(c => c.id === itemId ? { ...c, quantity: newQuantity } : c))
+    }
   }
 
+  // Add Stock Function
   const handleAddStock = async () => {
     if (!addStockItem || !addStockQty) return
     const qty = parseInt(addStockQty)
@@ -270,7 +195,6 @@ export default function OrdersPage() {
     }
 
     setAddingStock(true)
-    const shift = activeShiftRef.current
 
     const { error } = await supabase
       .from('shift_stock')
@@ -286,48 +210,52 @@ export default function OrdersPage() {
       return
     }
 
+    // Refresh stock data
     const today = new Date().toISOString().split('T')[0]
-    const session = sessionRef.current
-    await supabase.from('shift_activities').insert({
-      shift_date: today,
-      shift_id: shift.shift_id,
-      staff_id: session.id,
-      staff_name: `${session.first_name} ${session.surname}`,
-      staff_role: session.role,
-      action_type: 'ADD_STOCK',
-      action_details: {
-        item_name: addStockItem.item_name,
-        qty_added: qty,
-      },
-    })
+    const { data: stock, error: stockError } = await supabase
+      .from('shift_stock')
+      .select('*')
+      .eq('shift_date', today)
+      .eq('shift_id', shiftId)
+
+    if (!stockError && stock) {
+      setStockRows(stock)
+      const stockMapData: Record<string, number> = {}
+      stock.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
+      setStockMap(stockMapData)
+    }
 
     toast(`${qty} ${addStockItem.unit}(s) added to ${addStockItem.item_name}`, 'success')
-    await fetchStock(shift.shift_id)
     setShowAddStock(false)
     setAddStockItem(null)
+    setAddStockQty('')
     setAddingStock(false)
   }
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const filteredItems = selectedCategory === 'All'
-    ? menuItems
+  const filteredItems = selectedCategory === 'All' 
+    ? menuItems 
     : menuItems.filter(i => i.category === selectedCategory)
 
   if (loading) {
-    return <OrdersPageSkeleton />
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   if (error) {
     return (
       <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
-        <div className="card text-center max-w-sm">
-          <div className="text-danger text-4xl mb-3">⚠️</div>
-          <p className="t-h3 text-text-primary mb-2">Unable to load orders</p>
-          <p className="t-body text-text-secondary mb-4">{error}</p>
+        <div className="bg-white rounded-lg p-6 text-center max-w-sm">
+          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <h2 className="text-lg font-semibold mb-2">Unable to load orders</h2>
+          <p className="text-gray-500 mb-4">{error}</p>
           <button 
             onClick={() => navigate('/dashboard')}
-            className="btn-primary w-full"
+            className="bg-primary text-white px-6 py-2 rounded-lg w-full"
           >
             Go to Dashboard
           </button>
@@ -338,32 +266,30 @@ export default function OrdersPage() {
 
   return (
     <div className="min-h-screen bg-bg-subtle pb-32">
-      {/* Sticky header - flush with top */}
-      <div className="bg-white border-b border-border sticky top-0 z-20">
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <p className="t-small font-medium text-primary">
-            {activeShiftRef.current?.shifts?.name || 'Active'} Shift
-          </p>
+      {/* Header with Add Stock Button */}
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="px-4 py-3 flex justify-between items-center">
+          <span className="text-sm font-medium text-primary">{shiftName} Shift</span>
           <button
             onClick={() => setShowAddStock(true)}
-            className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full t-small font-medium min-h-0"
+            className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm font-medium"
           >
-            <PackagePlus size={14} />
+            <PackagePlus size={16} />
             Add Stock
           </button>
         </div>
         
-        {/* Categories scroll */}
-        <div className="overflow-x-auto scrollbar-none px-4 pb-3">
-          <div className="flex gap-2 whitespace-nowrap">
+        {/* Categories */}
+        <div className="px-4 pb-3 overflow-x-auto">
+          <div className="flex gap-2">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-full t-label transition-all min-h-0 min-w-0 flex-shrink-0 ${
+                className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap ${
                   selectedCategory === cat
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'bg-bg-subtle text-text-secondary border border-border hover:bg-border/50'
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 text-gray-600'
                 }`}
               >
                 {cat}
@@ -373,176 +299,118 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Menu grid */}
-      <div className="px-4 pt-4 pb-24 grid grid-cols-2 gap-3">
-        {filteredItems.length === 0 ? (
-          <div className="col-span-2 text-center py-16">
-            <p className="t-body text-text-muted">No items in this category</p>
-          </div>
-        ) : (
-          filteredItems.map(item => {
-            const cartItem = cart.find(c => c.id === item.id)
-            const inCart = !!cartItem
-            const remaining = getRemainingAfterCart(item.id)
-            const stockTotal = stockMap[item.id] ?? 0
-            const outOfStock = stockTotal <= 0
-            const maxedOut = remaining <= 0 && inCart
-
-            return (
-              <button
-                key={item.id}
-                onClick={() => tapItem(item)}
-                disabled={outOfStock || maxedOut}
-                className={`relative text-left p-4 rounded-[18px] border-2 transition-all active:scale-95 ${
-                  outOfStock || maxedOut
-                    ? 'bg-bg-subtle border-border opacity-50 cursor-not-allowed'
-                    : inCart
-                    ? 'bg-primary/5 border-primary'
-                    : 'bg-white border border-border shadow-sm'
-                }`}
-                style={{ minHeight: '100px' }}
-              >
-                {inCart && !outOfStock && (
-                  <span className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white text-[11px] font-semibold flex items-center justify-center shadow-sm">
-                    {cartItem!.quantity}
-                  </span>
-                )}
-
-                {outOfStock && (
-                  <span className="absolute top-3 right-3 bg-border text-text-muted text-[10px] font-medium px-2 py-0.5 rounded-full">
-                    Out
-                  </span>
-                )}
-
-                <p className="t-h3 text-text-primary leading-snug pr-8">
-                  {item.name}
-                </p>
-                <p className="t-small text-text-muted mt-0.5">{item.unit}</p>
-                <div className="flex items-center justify-between mt-2">
-                  <p className="t-label text-primary font-semibold">
-                    ₦{item.price.toLocaleString()}
-                  </p>
-                  {!outOfStock && (
-                    <p className="t-small text-text-muted">
-                      {remaining > 0 ? `${remaining} left` : 'Max added'}
-                    </p>
-                  )}
-                </div>
-              </button>
-            )
-          })
-        )}
+      {/* Menu Grid */}
+      <div className="p-4 grid grid-cols-2 gap-3">
+        {filteredItems.map(item => {
+          const remaining = getRemainingStock(item.id)
+          const outOfStock = remaining <= 0
+          const inCart = cart.find(c => c.id === item.id)
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => addToCart(item)}
+              disabled={outOfStock}
+              className={`bg-white rounded-xl p-4 text-left shadow-sm border ${
+                outOfStock ? 'opacity-50' : inCart ? 'border-primary' : 'border-gray-200'
+              }`}
+            >
+              {inCart && (
+                <span className="float-right bg-primary text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">
+                  {inCart.quantity}
+                </span>
+              )}
+              <h3 className="font-medium">{item.name}</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{item.unit}</p>
+              <p className="text-primary font-semibold mt-2">₦{item.price.toLocaleString()}</p>
+              {!outOfStock && remaining < 10 && (
+                <p className="text-xs text-orange-500 mt-1">{remaining} left</p>
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Persistent cart bar */}
+      {/* Cart Bar */}
       {cartCount > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 px-4 py-3 z-30 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t shadow-lg">
           <button
             onClick={() => setShowCart(true)}
-            className="w-full bg-primary rounded-[16px] px-5 py-4 flex items-center justify-between shadow-lg active:scale-[0.98] transition-transform"
+            className="w-full bg-primary text-white py-4 rounded-xl flex justify-between items-center px-4"
           >
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <ShoppingCart size={20} className="text-white" />
-                <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white text-primary text-[10px] font-bold flex items-center justify-center">
-                  {cartCount}
-                </span>
-              </div>
-              <span className="t-label text-white font-medium">View Order</span>
-            </div>
-            <span className="t-h3 text-white">₦{cartTotal.toLocaleString()}</span>
+            <span className="flex items-center gap-2">
+              <ShoppingCart size={20} />
+              <span className="font-medium">{cartCount} item(s)</span>
+            </span>
+            <span className="text-xl font-bold">₦{cartTotal.toLocaleString()}</span>
           </button>
         </div>
       )}
 
-      {/* Cart drawer */}
+      {/* Cart Modal */}
       {showCart && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="bg-white w-full rounded-t-[24px] max-h-[88vh] flex flex-col">
-            <div className="px-5 pt-4 pb-3 border-b border-border flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
-              <div className="flex justify-between items-center">
-                <p className="t-h2 text-text-primary">Your Order</p>
-                <button
-                  onClick={() => setShowCart(false)}
-                  className="text-text-muted min-h-0 min-w-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-bg-subtle"
-                >
-                  ✕
-                </button>
-              </div>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
+          <div className="bg-white w-full rounded-t-2xl max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h2 className="text-lg font-semibold">Your Order</h2>
+              <button onClick={() => setShowCart(false)} className="text-gray-500">
+                <X size={24} />
+              </button>
             </div>
-
-            <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-border">
-              {cart.map(item => {
-                const stockRemaining = stockMap[item.id] ?? 0
-                const canAddMore = (stockRemaining - item.quantity) > 0
-                return (
-                  <div key={item.id} className="flex items-center gap-3 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="t-body text-text-primary font-medium truncate">
-                        {item.name}
-                      </p>
-                      <p className="t-small text-text-secondary">
-                        ₦{item.price.toLocaleString()} each
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => updateQty(item.id, -1)}
-                        className="w-8 h-8 min-h-0 min-w-0 rounded-full bg-bg-subtle flex items-center justify-center active:bg-border"
-                      >
-                        {item.quantity === 1
-                          ? <Trash2 size={14} className="text-danger" />
-                          : <Minus size={14} className="text-text-secondary" />
-                        }
-                      </button>
-                      <span className="t-mono w-5 text-center font-medium">{item.quantity}</span>
-                      <button
-                        onClick={() => updateQty(item.id, 1)}
-                        disabled={!canAddMore}
-                        className={`w-8 h-8 min-h-0 min-w-0 rounded-full flex items-center justify-center ${
-                          canAddMore ? 'bg-primary' : 'bg-border cursor-not-allowed'
-                        }`}
-                      >
-                        <Plus size={14} className="text-white" />
-                      </button>
-                    </div>
-                    <p className="t-mono text-text-primary w-20 text-right flex-shrink-0">
-                      ₦{(item.price * item.quantity).toLocaleString()}
-                    </p>
+            
+            <div className="flex-1 overflow-auto p-4 space-y-3">
+              {cart.map(item => (
+                <div key={item.id} className="flex justify-between items-center">
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-gray-500">₦{item.price.toLocaleString()} each</p>
                   </div>
-                )
-              })}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => updateQuantity(item.id, -1)}
+                      className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+                    >
+                      {item.quantity === 1 ? <Trash2 size={14} /> : <Minus size={14} />}
+                    </button>
+                    <span className="w-8 text-center">{item.quantity}</span>
+                    <button
+                      onClick={() => updateQuantity(item.id, 1)}
+                      className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <p className="w-20 text-right font-medium">₦{(item.price * item.quantity).toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div className="px-5 py-4 border-t border-border flex-shrink-0 space-y-3">
-              <div className="flex justify-between items-center">
-                <p className="t-h3 text-text-secondary">
-                  {cartCount} item{cartCount !== 1 ? 's' : ''}
-                </p>
-                <p className="t-h1 text-primary">₦{cartTotal.toLocaleString()}</p>
+            
+            <div className="p-4 border-t">
+              <div className="flex justify-between mb-4">
+                <span className="font-semibold">Total</span>
+                <span className="text-xl font-bold text-primary">₦{cartTotal.toLocaleString()}</span>
               </div>
               <button
                 onClick={() => {
                   setShowCart(false)
                   navigate('/dashboard/payment')
                 }}
-                className="btn-primary w-full"
+                className="w-full bg-primary text-white py-3 rounded-xl font-medium"
               >
                 Proceed to Payment
               </button>
               <button
                 onClick={() => { saveCart([]); setShowCart(false) }}
-                className="w-full t-small text-text-muted text-center py-1"
+                className="w-full text-gray-500 text-sm py-2 mt-2"
               >
-                Clear order
+                Clear Order
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add stock modal */}
+      {/* Add Stock Modal */}
       {showAddStock && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
           <div className="bg-white w-full rounded-t-[24px] max-h-[85vh] flex flex-col">
@@ -556,10 +424,7 @@ export default function OrdersPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => {
-                    setShowAddStock(false)
-                    setAddStockItem(null)
-                  }}
+                  onClick={() => setShowAddStock(false)}
                   className="text-text-muted min-h-0 min-w-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-bg-subtle"
                 >
                   <X size={18} />
@@ -625,17 +490,12 @@ export default function OrdersPage() {
                     How many to add?
                   </label>
                   <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    type="number"
+                    min="1"
                     value={addStockQty}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^0-9]/g, '')
-                      setAddStockQty(value)
-                    }}
+                    onChange={(e) => setAddStockQty(e.target.value)}
                     className="input-base text-center text-2xl font-semibold"
                     placeholder="0"
-                    min="1"
                     autoFocus
                   />
                   {addStockQty && parseInt(addStockQty) > 0 && (

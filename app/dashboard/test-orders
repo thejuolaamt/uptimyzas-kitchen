@@ -1,0 +1,51 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+
+export default function TestOrdersPage() {
+  const [results, setResults] = useState<any>({})
+
+  useEffect(() => {
+    const test = async () => {
+      const today = new Date().toISOString().split('T')[0]
+      
+      // Test 1: Check shift session
+      const { data: shift, error: shiftError } = await supabase
+        .from('shift_sessions')
+        .select('*, shifts(*)')
+        .eq('shift_date', today)
+        .eq('status', 'open')
+        .maybeSingle()
+      
+      // Test 2: Check stock
+      const { data: stock, error: stockError } = await supabase
+        .from('shift_stock')
+        .select('*')
+        .eq('shift_date', today)
+      
+      // Test 3: Check menu items
+      const { data: menu, error: menuError } = await supabase
+        .from('menu_items')
+        .select('id, name')
+        .eq('available', true)
+      
+      setResults({
+        shift: { data: shift, error: shiftError },
+        stock: { count: stock?.length || 0, data: stock?.slice(0, 5), error: stockError },
+        menu: { count: menu?.length || 0, error: menuError }
+      })
+    }
+    
+    test()
+  }, [])
+
+  return (
+    <div className="p-4">
+      <h1 className="t-h1 mb-4">Diagnostic Test</h1>
+      <pre className="bg-gray-100 p-4 rounded text-xs overflow-auto">
+        {JSON.stringify(results, null, 2)}
+      </pre>
+    </div>
+  )
+}
