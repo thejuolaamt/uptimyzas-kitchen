@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Clock, ShoppingBag, ChevronRight, RefreshCw } from 'lucide-react'
-import { useScrollContainer } from '@/lib/useScrollContainer'
+import { Clock, ShoppingBag, ChevronRight } from 'lucide-react'
 
 type Shift = {
   id: string
@@ -30,13 +29,10 @@ function DashboardSkeleton() {
   return (
     <div className="min-h-screen bg-bg-subtle">
       <div className="p-4 pb-24 space-y-6">
-        {/* Greeting skeleton */}
         <div className="pt-2 space-y-2">
           <div className="skeleton h-8 w-48" />
           <div className="skeleton h-5 w-64" />
         </div>
-
-        {/* Active shift skeleton */}
         <div className="skeleton-card">
           <div className="space-y-3">
             <div className="skeleton h-4 w-24" />
@@ -48,8 +44,6 @@ function DashboardSkeleton() {
             </div>
           </div>
         </div>
-
-        {/* Shifts list skeleton */}
         <div className="space-y-3">
           <div className="skeleton h-6 w-32" />
           {[1, 2, 3].map(i => (
@@ -76,69 +70,40 @@ export default function StaffDashboard() {
   const router = useRouter()
   const toast = useToast()
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [assignedShifts, setAssignedShifts] = useState<Shift[]>([])
   const [activeShift, setActiveShift] = useState<any>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [timezone, setTimezone] = useState('Africa/Lagos')
 
   const [showStockModal, setShowStockModal] = useState(false)
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null)
   const [stockEntries, setStockEntries] = useState<StockEntry>({})
   const [submitting, setSubmitting] = useState(false)
 
-  // Pull-to-refresh handler
-  const handlePullToRefresh = async () => {
-    setRefreshing(true)
-    toast('Refreshing dashboard...', 'info')
-    
-    await fetchAll()
-    
-    setRefreshing(false)
-    toast('Dashboard refreshed!', 'success')
-  }
-
-  // Scroll container with pull-to-refresh
-  const scrollRef = useScrollContainer({
-    preventPullToRefresh: true,
-    onPullToRefresh: handlePullToRefresh,
-    pullThreshold: 80
-  })
-
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
       router.push('/auth/login')
-    } else {
-      setSession(userSession)
+      return
     }
+    setSession(userSession)
   }, [router])
 
   useEffect(() => {
     if (!session) return
+
+    const fetchAll = async () => {
+      setLoading(true)
+      await Promise.all([
+        checkActiveShift(),
+        fetchAssignedShifts(),
+        fetchMenuItems(),
+      ])
+      setLoading(false)
+    }
+
     fetchAll()
   }, [session])
-
-  const fetchAll = async () => {
-    await Promise.all([
-      checkActiveShift(),
-      fetchAssignedShifts(),
-      fetchMenuItems(),
-      fetchTimezone(),
-    ])
-    setLoading(false)
-  }
-
-  const fetchTimezone = async () => {
-    const { data } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'timezone')
-      .maybeSingle()
-    
-    if (data?.value) setTimezone(data.value)
-  }
 
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
@@ -156,7 +121,6 @@ export default function StaffDashboard() {
     }
 
     if (data) {
-      console.log('Active shift found:', data.shift_id)
       setActiveShift(data)
     }
   }
@@ -321,25 +285,14 @@ export default function StaffDashboard() {
     toast('Shift opened successfully!', 'success')
   }
 
-  // Show skeleton while loading
   if (loading) {
     return <DashboardSkeleton />
   }
 
   return (
-    <div ref={scrollRef} className="page-scroll">
-      {/* Pull-to-refresh indicator */}
-      {refreshing && (
-        <div className="fixed top-14 left-0 right-0 z-50 flex justify-center py-2 bg-primary/10">
-          <div className="flex items-center gap-2 text-primary">
-            <RefreshCw size={16} className="animate-spin" />
-            <span className="t-small">Refreshing...</span>
-          </div>
-        </div>
-      )}
-
+    <div className="min-h-screen bg-bg-subtle">
       <div className="p-4 pb-24 space-y-6">
-        {/* Greeting */}
+
         <div className="pt-2">
           <h1 className="t-h1 text-text-primary">
             Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},{' '}
@@ -352,7 +305,6 @@ export default function StaffDashboard() {
           </p>
         </div>
 
-        {/* Active shift */}
         {activeShift && (
           <div className="bg-primary rounded-[16px] p-5 text-white">
             <div className="flex items-center gap-2 mb-1">
@@ -383,7 +335,6 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* Assigned shifts */}
         {!activeShift && (
           <div>
             <p className="t-h3 text-text-primary mb-3">Your Shifts</p>
@@ -445,6 +396,7 @@ export default function StaffDashboard() {
             )}
           </div>
         )}
+
       </div>
 
       {/* Stock modal */}

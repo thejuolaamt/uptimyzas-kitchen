@@ -42,10 +42,10 @@ type StockRow = {
 function OrdersPageSkeleton() {
   return (
     <div className="min-h-screen bg-bg-subtle">
-      <div className="bg-white border-b border-border sticky top-14 z-10">
-        <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
+      <div className="bg-white border-b border-border sticky top-0 z-20">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <div className="skeleton h-5 w-24 rounded" />
-          <div className="skeleton h-5 w-20 rounded" />
+          <div className="skeleton h-8 w-20 rounded-full" />
         </div>
         <div className="px-4 pb-3">
           <div className="flex gap-2 overflow-x-auto">
@@ -55,7 +55,7 @@ function OrdersPageSkeleton() {
           </div>
         </div>
       </div>
-      <div className="px-4 pt-4 grid grid-cols-2 gap-3">
+      <div className="px-4 pt-4 pb-24 grid grid-cols-2 gap-3">
         {[1, 2, 3, 4, 5, 6].map(i => (
           <div key={i} className="bg-white rounded-[18px] border border-border p-4" style={{ minHeight: '100px' }}>
             <div className="space-y-2">
@@ -76,6 +76,7 @@ function OrdersPageSkeleton() {
 export default function OrdersPage() {
   const router = useRouter()
   const toast = useToast()
+  const [isRouterReady, setIsRouterReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -94,10 +95,25 @@ export default function OrdersPage() {
   const activeShiftRef = useRef<any>(null)
   const sessionRef = useRef<any>(null)
 
+  // Safe navigation function to prevent router errors
+  const navigate = (path: string) => {
+    if (isRouterReady) {
+      router.push(path)
+    } else {
+      window.location.href = path
+    }
+  }
+
   useEffect(() => {
+    setIsRouterReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isRouterReady) return
+    
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      navigate('/auth/login')
       return
     }
     sessionRef.current = userSession
@@ -106,7 +122,7 @@ export default function OrdersPage() {
     if (saved) setCart(JSON.parse(saved))
 
     init()
-  }, [router])
+  }, [isRouterReady])
 
   const init = async () => {
     try {
@@ -125,7 +141,7 @@ export default function OrdersPage() {
         console.error('Error fetching shift:', error)
         setError('Error loading shift: ' + error.message)
         toast('Error loading shift: ' + error.message, 'error')
-        router.push('/dashboard')
+        setLoading(false)
         return
       }
 
@@ -133,7 +149,7 @@ export default function OrdersPage() {
         console.log('No active shift found for today')
         setError('No active shift. Please open a shift first.')
         toast('No active shift. Please open a shift first.', 'warning')
-        router.push('/dashboard')
+        setLoading(false)
         return
       }
 
@@ -310,7 +326,7 @@ export default function OrdersPage() {
           <p className="t-h3 text-text-primary mb-2">Unable to load orders</p>
           <p className="t-body text-text-secondary mb-4">{error}</p>
           <button 
-            onClick={() => router.push('/dashboard')}
+            onClick={() => navigate('/dashboard')}
             className="btn-primary w-full"
           >
             Go to Dashboard
@@ -321,34 +337,33 @@ export default function OrdersPage() {
   }
 
   return (
-    <div
-      className="min-h-screen bg-bg-subtle"
-      style={{ paddingBottom: cartCount > 0 ? '148px' : '88px' }}
-    >
-      {/* Sticky category strip */}
-      <div className="bg-white border-b border-border sticky top-14 z-10">
-        <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
-          <p className="t-small text-text-muted">
-            {activeShiftRef.current?.shifts?.name || 'No Shift'} Shift
+    <div className="min-h-screen bg-bg-subtle pb-32">
+      {/* Sticky header - flush with top */}
+      <div className="bg-white border-b border-border sticky top-0 z-20">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+          <p className="t-small font-medium text-primary">
+            {activeShiftRef.current?.shifts?.name || 'Active'} Shift
           </p>
           <button
             onClick={() => setShowAddStock(true)}
-            className="flex items-center gap-1.5 text-primary t-small font-medium min-h-0 min-w-0 py-1"
+            className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full t-small font-medium min-h-0"
           >
-            <PackagePlus size={15} />
+            <PackagePlus size={14} />
             Add Stock
           </button>
         </div>
-        <div className="overflow-x-auto scrollbar-none">
-          <div className="flex whitespace-nowrap px-4 pb-3 gap-2">
+        
+        {/* Categories scroll */}
+        <div className="overflow-x-auto scrollbar-none px-4 pb-3">
+          <div className="flex gap-2 whitespace-nowrap">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-full t-label transition-colors min-h-0 min-w-0 flex-shrink-0 ${
+                className={`px-4 py-1.5 rounded-full t-label transition-all min-h-0 min-w-0 flex-shrink-0 ${
                   selectedCategory === cat
-                    ? 'bg-primary text-white'
-                    : 'bg-bg-subtle text-text-secondary border border-border'
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-bg-subtle text-text-secondary border border-border hover:bg-border/50'
                 }`}
               >
                 {cat}
@@ -359,7 +374,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Menu grid */}
-      <div className="px-4 pt-4 grid grid-cols-2 gap-3">
+      <div className="px-4 pt-4 pb-24 grid grid-cols-2 gap-3">
         {filteredItems.length === 0 ? (
           <div className="col-span-2 text-center py-16">
             <p className="t-body text-text-muted">No items in this category</p>
@@ -383,12 +398,12 @@ export default function OrdersPage() {
                     ? 'bg-bg-subtle border-border opacity-50 cursor-not-allowed'
                     : inCart
                     ? 'bg-primary/5 border-primary'
-                    : 'bg-white border-transparent'
+                    : 'bg-white border border-border shadow-sm'
                 }`}
                 style={{ minHeight: '100px' }}
               >
                 {inCart && !outOfStock && (
-                  <span className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white text-[11px] font-semibold flex items-center justify-center">
+                  <span className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary text-white text-[11px] font-semibold flex items-center justify-center shadow-sm">
                     {cartItem!.quantity}
                   </span>
                 )}
@@ -421,7 +436,7 @@ export default function OrdersPage() {
 
       {/* Persistent cart bar */}
       {cartCount > 0 && (
-        <div className="fixed bottom-[68px] left-0 right-0 px-4 z-20 pb-2">
+        <div className="fixed bottom-0 left-0 right-0 px-4 py-3 z-30 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent">
           <button
             onClick={() => setShowCart(true)}
             className="w-full bg-primary rounded-[16px] px-5 py-4 flex items-center justify-between shadow-lg active:scale-[0.98] transition-transform"
@@ -429,7 +444,7 @@ export default function OrdersPage() {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <ShoppingCart size={20} className="text-white" />
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white text-primary text-[9px] font-bold flex items-center justify-center">
+                <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white text-primary text-[10px] font-bold flex items-center justify-center">
                   {cartCount}
                 </span>
               </div>
@@ -510,7 +525,7 @@ export default function OrdersPage() {
               <button
                 onClick={() => {
                   setShowCart(false)
-                  router.push('/dashboard/payment')
+                  navigate('/dashboard/payment')
                 }}
                 className="btn-primary w-full"
               >

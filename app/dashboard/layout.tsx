@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, ShoppingBag, Clock,
-  Package, Receipt, Users, Settings,
+  Package, Receipt, Users,
   LogOut, Menu, MessageCircle, X
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
@@ -18,12 +18,7 @@ export default function DashboardLayout({
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Debug: log pathname to console
-  useEffect(() => {
-    console.log('DashboardLayout - Current pathname:', pathname)
-  }, [pathname])
-
-  // Check for chat page with or without trailing slash
+  // Check if we're on chat page - hide navigation
   const isChatPage = pathname === '/dashboard/chat' || pathname === '/dashboard/chat/' || pathname?.includes('/chat')
 
   const bottomNav = [
@@ -61,9 +56,8 @@ export default function DashboardLayout({
     router.push('/auth/login')
   }
 
-  // For chat page - render WITHOUT any navigation
+  // For chat page - render without any navigation (full screen)
   if (isChatPage) {
-    console.log('Rendering dashboard chat page with NO navigation')
     return (
       <div className="min-h-screen w-full">
         {children}
@@ -98,7 +92,6 @@ export default function DashboardLayout({
 
       {/* Desktop layout */}
       <div className="hidden md:flex flex-1 pt-14 overflow-hidden">
-        {/* Sidebar - fixed, doesn't scroll */}
         <aside className="w-56 bg-white border-r border-border flex-shrink-0 overflow-y-auto">
           <div className="flex flex-col h-full">
             <div className="flex-1 px-3 py-4 space-y-0.5">
@@ -132,7 +125,6 @@ export default function DashboardLayout({
           </div>
         </aside>
 
-        {/* Main content - THIS SCROLLS */}
         <main className="flex-1 min-w-0 overflow-y-auto">
           {children}
         </main>
@@ -232,7 +224,6 @@ export default function DashboardLayout({
           </button>
         </div>
       </div>
-
     </div>
   )
 }
