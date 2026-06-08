@@ -279,17 +279,17 @@ export default function OrdersPage() {
           </button>
         </div>
         
-        {/* Categories */}
-        <div className="px-4 pb-3 overflow-x-auto">
-          <div className="flex gap-2">
+        {/* Categories - FIXED: Better mobile and desktop layout */}
+        <div className="px-4 pb-3">
+          <div className="flex flex-wrap gap-2">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap ${
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all active:scale-95 ${
                   selectedCategory === cat
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-600'
+                    ? 'bg-primary text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 {cat}
@@ -299,8 +299,8 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Menu Grid */}
-      <div className="p-4 grid grid-cols-2 gap-3">
+      {/* Menu Grid - Responsive: 2 columns on mobile, 3 on tablet, 4 on desktop */}
+      <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {filteredItems.map(item => {
           const remaining = getRemainingStock(item.id)
           const outOfStock = remaining <= 0
@@ -311,18 +311,18 @@ export default function OrdersPage() {
               key={item.id}
               onClick={() => addToCart(item)}
               disabled={outOfStock}
-              className={`bg-white rounded-xl p-4 text-left shadow-sm border ${
-                outOfStock ? 'opacity-50' : inCart ? 'border-primary' : 'border-gray-200'
+              className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all active:scale-95 ${
+                outOfStock ? 'opacity-50' : inCart ? 'border-primary shadow-md' : 'border-gray-200'
               }`}
             >
               {inCart && (
-                <span className="float-right bg-primary text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">
+                <span className="float-right bg-primary text-white w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center">
                   {inCart.quantity}
                 </span>
               )}
-              <h3 className="font-medium">{item.name}</h3>
+              <h3 className="font-medium text-sm sm:text-base">{item.name}</h3>
               <p className="text-xs text-gray-400 mt-0.5">{item.unit}</p>
-              <p className="text-primary font-semibold mt-2">₦{item.price.toLocaleString()}</p>
+              <p className="text-primary font-semibold mt-2 text-sm sm:text-base">₦{item.price.toLocaleString()}</p>
               {!outOfStock && remaining < 10 && (
                 <p className="text-xs text-orange-500 mt-1">{remaining} left</p>
               )}
@@ -331,12 +331,12 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {/* Cart Bar */}
+      {/* Cart Bar - Positioned above bottom navigation */}
       {cartCount > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t shadow-lg">
+        <div className="fixed bottom-[68px] left-0 right-0 p-4 bg-white border-t shadow-lg z-30">
           <button
             onClick={() => setShowCart(true)}
-            className="w-full bg-primary text-white py-4 rounded-xl flex justify-between items-center px-4"
+            className="w-full bg-primary text-white py-4 rounded-xl flex justify-between items-center px-4 active:scale-98 transition-transform"
           >
             <span className="flex items-center gap-2">
               <ShoppingCart size={20} />
@@ -368,14 +368,14 @@ export default function OrdersPage() {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => updateQuantity(item.id, -1)}
-                      className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+                      className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center active:scale-95"
                     >
                       {item.quantity === 1 ? <Trash2 size={14} /> : <Minus size={14} />}
                     </button>
                     <span className="w-8 text-center">{item.quantity}</span>
                     <button
                       onClick={() => updateQuantity(item.id, 1)}
-                      className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"
+                      className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center active:scale-95"
                     >
                       <Plus size={14} />
                     </button>
@@ -395,7 +395,7 @@ export default function OrdersPage() {
                   setShowCart(false)
                   navigate('/dashboard/payment')
                 }}
-                className="w-full bg-primary text-white py-3 rounded-xl font-medium"
+                className="w-full bg-primary text-white py-3 rounded-xl font-medium active:scale-98 transition-transform"
               >
                 Proceed to Payment
               </button>
@@ -445,7 +445,7 @@ export default function OrdersPage() {
                       <button
                         key={row.id}
                         onClick={() => setAddStockItem(row)}
-                        className="w-full flex justify-between items-center py-3.5 min-h-0 text-left"
+                        className="w-full flex justify-between items-center py-3.5 min-h-0 text-left active:bg-gray-50"
                       >
                         <div>
                           <p className="t-body text-text-primary font-medium">{row.item_name}</p>

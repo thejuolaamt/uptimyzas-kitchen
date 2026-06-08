@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
@@ -24,6 +24,7 @@ const PAYMENT_METHODS = [
 export default function PaymentPage() {
   const router = useRouter()
   const toast  = useToast()
+  const [isRouterReady, setIsRouterReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [session, setSession] = useState<any>(null)
@@ -35,22 +36,36 @@ export default function PaymentPage() {
   const activeShiftRef = useRef<any>(null)
   const [activeShift, setActiveShift] = useState<any>(null)
 
+  const navigate = useCallback((path: string) => {
+    if (isRouterReady) {
+      router.push(path)
+    } else {
+      window.location.href = path
+    }
+  }, [isRouterReady, router])
+
   useEffect(() => {
+    setIsRouterReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isRouterReady) return
+
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      navigate('/auth/login')
       return
     }
     setSession(userSession)
 
     const saved = localStorage.getItem('current_order_cart')
     if (!saved) {
-      router.push('/dashboard/orders')
+      navigate('/dashboard/orders')
       return
     }
     setCart(JSON.parse(saved))
     initShift()
-  }, [router])
+  }, [isRouterReady, navigate])
 
   const initShift = async () => {
     const today = new Date().toISOString().split('T')[0]
@@ -59,11 +74,11 @@ export default function PaymentPage() {
       .select('*, shifts(*)')
       .eq('shift_date', today)
       .eq('status', 'open')
-      .single()
+      .maybeSingle()
 
     if (!data || error) {
       toast('No active shift. Please open a shift first.', 'warning')
-      router.push('/dashboard')
+      navigate('/dashboard')
       return
     }
 
@@ -83,7 +98,7 @@ export default function PaymentPage() {
         .eq('shift_date', today)
         .eq('shift_id', shiftId)
         .eq('item_id', item.id)
-        .single()
+        .maybeSingle()
 
       if (error || !data) {
         toast(`Stock not found for ${item.name}. Make sure shift was opened correctly.`, 'error')
@@ -198,7 +213,7 @@ export default function PaymentPage() {
         .eq('shift_date', today)
         .eq('shift_id', shift.shift_id)
         .eq('item_id', item.id)
-        .single()
+        .maybeSingle()
 
       if (stock) {
         await supabase
@@ -224,7 +239,7 @@ export default function PaymentPage() {
       transferAmount: transferAmt,
     }))
 
-    router.push('/dashboard/receipt')
+    navigate('/dashboard/receipt')
     setProcessing(false)
   }
 
@@ -237,7 +252,7 @@ export default function PaymentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-subtle pb-32">
+    <div className="min-h-screen bg-bg-subtle pb-36">
       <div className="p-4 space-y-4">
 
         {/* Total hero */}
@@ -362,8 +377,8 @@ export default function PaymentPage() {
 
       </div>
 
-      {/* Sticky confirm */}
-      <div className="fixed bottom-[68px] left-0 right-0 px-4 z-20 pb-2">
+      {/* Sticky confirm button - moved up with proper bottom spacing */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent pt-8 z-20">
         <button
           onClick={handleConfirmOrder}
           disabled={processing}
