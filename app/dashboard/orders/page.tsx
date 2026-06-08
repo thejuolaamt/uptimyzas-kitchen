@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, X } from 'lucide-react'
+import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, X, ChevronDown } from 'lucide-react'
 
 type MenuItem = {
   id: string
@@ -49,6 +49,7 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null)
   const [shiftName, setShiftName] = useState('')
   const [shiftId, setShiftId] = useState<string>('')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   // Add stock modal state
   const [showAddStock, setShowAddStock] = useState(false)
@@ -238,6 +239,19 @@ export default function OrdersPage() {
     ? menuItems 
     : menuItems.filter(i => i.category === selectedCategory)
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setIsDropdownOpen(false)
+    }
+    if (isDropdownOpen) {
+      document.addEventListener('click', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [isDropdownOpen])
+
   if (loading) {
     return (
       <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
@@ -279,22 +293,42 @@ export default function OrdersPage() {
           </button>
         </div>
         
-        {/* Categories - FIXED: Better mobile and desktop layout */}
+        {/* Category Dropdown Filter - Clean and Mobile Friendly */}
         <div className="px-4 pb-3">
-          <div className="flex flex-wrap gap-2">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all active:scale-95 ${
-                  selectedCategory === cat
-                    ? 'bg-primary text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsDropdownOpen(!isDropdownOpen)
+              }}
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              <span className="font-medium">
+                {selectedCategory === 'All' ? 'All Categories' : selectedCategory}
+              </span>
+              <ChevronDown size={18} className={`transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {isDropdownOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      setSelectedCategory(cat)
+                      setIsDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors first:rounded-t-xl last:rounded-b-xl ${
+                      selectedCategory === cat
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {cat === 'All' ? 'All Categories' : cat}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
