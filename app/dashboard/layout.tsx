@@ -28,7 +28,7 @@ export default function DashboardLayout({
   ]
 
   const drawerItems = [
-    { name: 'Stock Board', icon: Package, path: '/dashboard/stock-board' },
+    { name: 'Stock Board', icon: Package, path: '/dashboard/stock' },
     { name: 'Expenses', icon: Receipt, path: '/dashboard/expenses' },
     { name: 'Activities', icon: Clock, path: '/dashboard/shift-activities' },
     { name: 'Profile', icon: Users, path: '/dashboard/profile' },
