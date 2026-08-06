@@ -67,6 +67,8 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const usersCacheRef = useRef<Record<string, string>>({})
+  const channelRef = useRef<any>(null)
+  const subscriptionSetupDone = useRef<boolean>(false)
 
   const scrollToBottom = useCallback((smooth = true) => {
     setTimeout(() => {
@@ -118,13 +120,25 @@ export default function ChatPage() {
     fetchMessages()
   }, [session])
 
+  // Set up realtime subscription
   useEffect(() => {
     if (!session) return
 
-    let channel: ReturnType<typeof supabase.channel>
+    // Prevent duplicate setup
+    if (subscriptionSetupDone.current) {
+      console.log('Chat subscription already set up, skipping')
+      return
+    }
 
     const setupChannel = () => {
-      channel = supabase.channel(`kitchen-chat-${Date.now()}`)
+      // Clean up existing channel if any
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+        subscriptionSetupDone.current = false
+      }
+
+      const channel = supabase.channel(`kitchen-chat-${Date.now()}`)
 
       channel
         .on(
@@ -149,17 +163,29 @@ export default function ChatPage() {
           }
         )
         .subscribe((status: string) => {
-          if (status === 'CHANNEL_ERROR') {
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Subscribed to chat updates')
+            subscriptionSetupDone.current = true
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Chat channel error, will retry in 5 seconds')
+            subscriptionSetupDone.current = false
             supabase.removeChannel(channel)
-            setTimeout(setupChannel, 3000)
+            setTimeout(setupChannel, 5000)
           }
         })
+
+      channelRef.current = channel
     }
 
     setupChannel()
 
     return () => {
-      if (channel) supabase.removeChannel(channel)
+      if (channelRef.current) {
+        console.log('Cleaning up chat subscription')
+        supabase.removeChannel(channelRef.current)
+        channelRef.current = null
+        subscriptionSetupDone.current = false
+      }
     }
   }, [session, getUserName, scrollToBottom])
 

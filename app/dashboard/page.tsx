@@ -5,7 +5,16 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Clock, ShoppingBag, ChevronRight } from 'lucide-react'
+import { Package, Receipt, Users, TrendingUp, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
+
+type MenuItem = {
+  id: string
+  name: string
+  category: string
+  price: number
+  unit: string
+  available: boolean
+}
 
 type Shift = {
   id: string
@@ -14,71 +23,24 @@ type Shift = {
   end_time: string
 }
 
-type MenuItem = {
-  id: string
-  name: string
-  unit: string
-}
-
-type StockEntry = {
-  [itemId: string]: string
-}
-
-// Skeleton Loader Component
-function DashboardSkeleton() {
-  return (
-    <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4 pb-24 space-y-6">
-        <div className="pt-2 space-y-2">
-          <div className="skeleton h-8 w-48" />
-          <div className="skeleton h-5 w-64" />
-        </div>
-        <div className="skeleton-card">
-          <div className="space-y-3">
-            <div className="skeleton h-4 w-24" />
-            <div className="skeleton h-8 w-40" />
-            <div className="skeleton h-4 w-32" />
-            <div className="flex gap-3 mt-4">
-              <div className="skeleton-button flex-1" />
-              <div className="skeleton-button flex-1" />
-            </div>
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div className="skeleton h-6 w-32" />
-          {[1, 2, 3].map(i => (
-            <div key={i} className="skeleton-card">
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <div className="space-y-2">
-                    <div className="skeleton h-6 w-32" />
-                    <div className="skeleton h-4 w-24" />
-                  </div>
-                  <div className="skeleton h-6 w-16" />
-                </div>
-                <div className="skeleton-button" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function StaffDashboard() {
+export default function DashboardPage() {
   const router = useRouter()
   const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
-  const [assignedShifts, setAssignedShifts] = useState<Shift[]>([])
-  const [activeShift, setActiveShift] = useState<any>(null)
+  const [stats, setStats] = useState({
+    todayOrders: 0,
+    todayRevenue: 0,
+    activeStaff: 0,
+    lowStockItems: 0,
+  })
+  const [hasActiveShift, setHasActiveShift] = useState(false)
+  const [showShiftModal, setShowShiftModal] = useState(false)
+  const [selectedShift, setSelectedShift] = useState<string>('')
+  const [shifts, setShifts] = useState<Shift[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-
-  const [showStockModal, setShowStockModal] = useState(false)
-  const [selectedShift, setSelectedShift] = useState<Shift | null>(null)
-  const [stockEntries, setStockEntries] = useState<StockEntry>({})
-  const [submitting, setSubmitting] = useState(false)
+  const [stockQuantities, setStockQuantities] = useState<Record<string, string>>({})
+  const [openingShift, setOpeningShift] = useState(false)
 
   useEffect(() => {
     const userSession = getSession()
@@ -87,367 +49,441 @@ export default function StaffDashboard() {
       return
     }
     setSession(userSession)
+    loadDashboard()
   }, [router])
 
-  useEffect(() => {
-    if (!session) return
-
-    const fetchAll = async () => {
+  const loadDashboard = async () => {
+    try {
       setLoading(true)
-      await Promise.all([
-        checkActiveShift(),
-        fetchAssignedShifts(),
-        fetchMenuItems(),
-      ])
+      const today = new Date().toISOString().split('T')[0]
+
+      // Check active shift
+      const { data: activeShift } = await supabase
+        .from('shift_sessions')
+        .select('id')
+        .eq('shift_date', today)
+        .eq('status', 'open')
+        .maybeSingle()
+
+      setHasActiveShift(!!activeShift)
+
+      if (activeShift) {
+        await loadStats(today)
+      }
+
+      // Load shifts for modal
+      const { data: shiftData } = await supabase
+        .from('shifts')
+        .select('*')
+        .order('start_time')
+
+      setShifts(shiftData || [])
+
+      // Load menu items for stock setup
+      const { data: menuData } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('available', true)
+        .order('category')
+
+      setMenuItems(menuData || [])
+      
+      const initialStock: Record<string, string> = {}
+      menuData?.forEach(item => {
+        initialStock[item.id] = ''
+      })
+      setStockQuantities(initialStock)
+
+    } catch (error) {
+      console.error('Error loading dashboard:', error)
+      toast('Failed to load dashboard data', 'error')
+    } finally {
       setLoading(false)
     }
-
-    fetchAll()
-  }, [session])
-
-  const checkActiveShift = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    
-    const { data, error } = await supabase
-      .from('shift_sessions')
-      .select('*, shifts(*)')
-      .eq('shift_date', today)
-      .eq('status', 'open')
-      .maybeSingle()
-
-    if (error) {
-      console.error('Error checking active shift:', error)
-      return
-    }
-
-    if (data) {
-      setActiveShift(data)
-    }
   }
 
-  const fetchAssignedShifts = async () => {
-    const { data, error } = await supabase
-      .from('staff_shifts')
-      .select('shift_id, shifts(*)')
-      .eq('staff_id', session.id)
+  const loadStats = async (today: string) => {
+    try {
+      const { count: orderCount } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .eq('shift_date', today)
 
-    if (!error && data) {
-      const shifts = data
-        .map((ss: any) => ss.shifts)
-        .filter(Boolean)
-        .sort((a: Shift, b: Shift) => a.start_time.localeCompare(b.start_time))
-      setAssignedShifts(shifts)
-    }
-  }
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('total')
+        .eq('shift_date', today)
 
-  const fetchMenuItems = async () => {
-    const { data } = await supabase
-      .from('menu_items')
-      .select('id, name, unit')
-      .eq('available', true)
-    if (data) setMenuItems(data)
-  }
+      const totalRevenue = orders?.reduce((sum, o) => sum + o.total, 0) || 0
 
-  const isWithinShiftWindow = (shift: Shift): boolean => {
-    const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+      const { count: staffCount } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
 
-    const [startH, startM] = shift.start_time.slice(0, 5).split(':').map(Number)
-    const [endH, endM] = shift.end_time.slice(0, 5).split(':').map(Number)
-
-    const startMinutes = startH * 60 + startM
-    const endMinutes = endH * 60 + endM
-
-    if (endMinutes < startMinutes) {
-      return nowMinutes >= startMinutes || nowMinutes <= endMinutes
-    }
-    return nowMinutes >= startMinutes && nowMinutes <= endMinutes
-  }
-
-  const getShiftStatus = (shift: Shift): 'open-now' | 'upcoming' | 'ended' => {
-    const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-    const [startH, startM] = shift.start_time.slice(0, 5).split(':').map(Number)
-    const [endH, endM] = shift.end_time.slice(0, 5).split(':').map(Number)
-    const startMinutes = startH * 60 + startM
-    const endMinutes = endH * 60 + endM
-
-    if (endMinutes < startMinutes) {
-      if (nowMinutes >= startMinutes || nowMinutes <= endMinutes) return 'open-now'
-      if (nowMinutes < startMinutes) return 'upcoming'
-      return 'ended'
-    }
-    if (nowMinutes < startMinutes) return 'upcoming'
-    if (nowMinutes > endMinutes) return 'ended'
-    return 'open-now'
-  }
-
-  const handleOpenShiftClick = async (shift: Shift) => {
-    if (!isWithinShiftWindow(shift)) {
-      const status = getShiftStatus(shift)
-      if (status === 'upcoming') {
-        toast(`${shift.name} shift hasn't started yet. It starts at ${shift.start_time.slice(0, 5)}`, 'warning')
-      } else {
-        toast(`${shift.name} shift has already ended at ${shift.end_time.slice(0, 5)}`, 'warning')
-      }
-      return
-    }
-
-    const today = new Date().toISOString().split('T')[0]
-    const { data: existing } = await supabase
-      .from('shift_sessions')
-      .select('id')
-      .eq('shift_date', today)
-      .eq('shift_id', shift.id)
-      .maybeSingle()
-
-    if (existing) {
-      toast('This shift is already open for today', 'warning')
-      return
-    }
-
-    const initial: StockEntry = {}
-    menuItems.forEach(item => { initial[item.id] = '0' })
-    setStockEntries(initial)
-    setSelectedShift(shift)
-    setShowStockModal(true)
-  }
-
-  const handleConfirmOpenShift = async () => {
-    if (!selectedShift || !session) return
-    setSubmitting(true)
-
-    const today = new Date().toISOString().split('T')[0]
-
-    const { data: sessionData, error: sessionError } = await supabase
-      .from('shift_sessions')
-      .insert({
-        shift_date: today,
-        shift_id: selectedShift.id,
-        status: 'open',
-        opener_staff_id: session.id,
-        opened_at: new Date().toISOString(),
-      })
-      .select()
-      .single()
-
-    if (sessionError) {
-      toast('Error opening shift: ' + sessionError.message, 'error')
-      setSubmitting(false)
-      return
-    }
-
-    await supabase.from('shift_activities').insert({
-      shift_date: today,
-      shift_id: selectedShift.id,
-      staff_id: session.id,
-      staff_name: `${session.first_name} ${session.surname}`,
-      staff_role: session.role,
-      action_type: 'OPEN_SHIFT',
-      action_details: { opened_at: new Date().toISOString() },
-    })
-
-    let hasError = false
-    for (const item of menuItems) {
-      const openingQty = parseInt(stockEntries[item.id]) || 0
-      
-      const { error: stockError } = await supabase
+      const { data: lowStock } = await supabase
         .from('shift_stock')
+        .select('item_name, remaining_qty')
+        .eq('shift_date', today)
+        .lt('remaining_qty', 5)
+
+      setStats({
+        todayOrders: orderCount || 0,
+        todayRevenue: totalRevenue,
+        activeStaff: staffCount || 0,
+        lowStockItems: lowStock?.length || 0,
+      })
+    } catch (error) {
+      console.error('Error loading stats:', error)
+    }
+  }
+
+  const handleOpenShift = async () => {
+    if (!selectedShift) {
+      toast('Please select a shift', 'warning')
+      return
+    }
+
+    const hasStock = Object.values(stockQuantities).some(q => parseInt(q) > 0)
+    if (!hasStock) {
+      toast('Please enter opening stock quantities for at least one item', 'warning')
+      return
+    }
+
+    setOpeningShift(true)
+    const today = new Date().toISOString().split('T')[0]
+
+    try {
+      const shift = shifts.find(s => s.id === selectedShift)
+      if (!shift) throw new Error('Shift not found')
+
+      // 1. Create the shift session
+      const { data: shiftData, error: shiftError } = await supabase
+        .from('shift_sessions')
         .insert({
           shift_date: today,
-          shift_id: selectedShift.id,
+          shift_id: selectedShift,
+          status: 'open',
+          opener_staff_id: session.id,
+          opened_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (shiftError) throw new Error(shiftError.message)
+
+      // 2. Prepare stock data for batch insert
+      const stockData = menuItems
+        .filter(item => {
+          const qty = parseInt(stockQuantities[item.id] || '0')
+          return qty > 0
+        })
+        .map(item => ({
+          shift_date: today,
+          shift_id: selectedShift,
           item_id: item.id,
           item_name: item.name,
-          opening_qty: openingQty,
+          opening_qty: parseInt(stockQuantities[item.id] || '0'),
+          remaining_qty: parseInt(stockQuantities[item.id] || '0'),
           sold_qty: 0,
-          remaining_qty: openingQty,
-          opener_staff_id: session.id,
           unit: item.unit,
-        })
+          opener_staff_id: session.id,
+        }))
+
+      if (stockData.length === 0) {
+        throw new Error('No stock items with quantity > 0')
+      }
+
+      // Batch insert - atomic operation
+      const { error: stockError } = await supabase
+        .from('shift_stock')
+        .insert(stockData)
 
       if (stockError) {
-        console.error(`Error inserting stock for ${item.name}:`, stockError)
-        toast(`Error saving stock for ${item.name}: ${stockError.message}`, 'error')
-        hasError = true
-        break
+        // Rollback: delete the shift session
+        await supabase
+          .from('shift_sessions')
+          .delete()
+          .eq('id', shiftData.id)
+        
+        throw new Error(`Failed to add stock: ${stockError.message}`)
       }
-    }
 
-    if (hasError) {
-      setSubmitting(false)
-      return
-    }
+      // 3. Log the activity
+      await supabase.from('shift_activities').insert({
+        shift_date: today,
+        shift_id: selectedShift,
+        staff_id: session.id,
+        staff_name: `${session.first_name} ${session.surname}`,
+        staff_role: session.role,
+        action_type: 'OPEN_SHIFT',
+        action_details: {
+          shift_name: shift.name,
+          items_count: stockData.length,
+        },
+      })
 
-    setActiveShift({ ...sessionData, shifts: selectedShift })
-    setShowStockModal(false)
-    setSelectedShift(null)
-    setSubmitting(false)
-    toast('Shift opened successfully!', 'success')
+      toast(`Shift opened successfully with ${stockData.length} items`, 'success')
+      setShowShiftModal(false)
+      setHasActiveShift(true)
+      await loadStats(today)
+
+    } catch (error: any) {
+      console.error('Error opening shift:', error)
+      toast(error.message || 'Failed to open shift', 'error')
+    } finally {
+      setOpeningShift(false)
+    }
+  }
+
+  const handleCloseShift = async () => {
+    router.push('/dashboard/close-shift')
   }
 
   if (loading) {
-    return <DashboardSkeleton />
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-bg-subtle">
-      <div className="p-4 pb-24 space-y-6">
-
-        <div className="pt-2">
-          <h1 className="t-h1 text-text-primary">
-            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'},{' '}
-            {session?.first_name} 👋
+      <div className="p-4 space-y-4">
+        {/* Welcome Section */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <h1 className="text-xl font-bold text-text-primary">
+            Welcome back, {session?.first_name || 'Staff'}!
           </h1>
-          <p className="t-body text-text-secondary mt-1">
-            {new Date().toLocaleDateString('en-NG', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+          <p className="text-sm text-text-secondary">
+            {new Date().toLocaleDateString('en-NG', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
             })}
           </p>
         </div>
 
-        {activeShift && (
-          <div className="bg-primary rounded-[16px] p-5 text-white">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              <p className="t-small uppercase tracking-widest text-white/70">Active Shift</p>
+        {/* Shift Status */}
+        <div className={`rounded-2xl p-4 shadow-sm ${
+          hasActiveShift ? 'bg-[#2E7D32]/10 border border-[#2E7D32]/20' : 'bg-warning/10 border border-warning/20'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {hasActiveShift ? (
+                <CheckCircle size={24} className="text-[#2E7D32]" />
+              ) : (
+                <AlertCircle size={24} className="text-warning" />
+              )}
+              <div>
+                <p className={`font-semibold ${
+                  hasActiveShift ? 'text-[#2E7D32]' : 'text-warning'
+                }`}>
+                  {hasActiveShift ? 'Shift Active' : 'No Active Shift'}
+                </p>
+                <p className="text-sm text-text-secondary">
+                  {hasActiveShift 
+                    ? 'You can take orders and manage stock' 
+                    : 'Open a shift to start taking orders'}
+                </p>
+              </div>
             </div>
-            <p className="t-h1 text-white mt-1">{activeShift.shifts?.name}</p>
-            <p className="t-small text-white/60 mt-0.5">
-              Opened at {new Date(activeShift.opened_at).toLocaleTimeString('en-NG', {
-                hour: '2-digit', minute: '2-digit'
-              })}
-            </p>
-            <div className="flex gap-3 mt-4">
+            {!hasActiveShift ? (
               <button
-                onClick={() => router.push('/dashboard/orders')}
-                className="flex-1 flex items-center justify-center gap-2 bg-white text-primary py-3 rounded-[12px] t-label"
+                onClick={() => setShowShiftModal(true)}
+                className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
-                <ShoppingBag size={16} />
-                Take Orders
+                Open Shift
               </button>
+            ) : (
               <button
-                onClick={() => router.push('/dashboard/close-shift')}
-                className="flex-1 flex items-center justify-center gap-2 bg-white/20 text-white py-3 rounded-[12px] t-label"
+                onClick={handleCloseShift}
+                className="bg-danger text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
                 Close Shift
               </button>
-            </div>
-          </div>
-        )}
-
-        {!activeShift && (
-          <div>
-            <p className="t-h3 text-text-primary mb-3">Your Shifts</p>
-
-            {assignedShifts.length === 0 ? (
-              <div className="bg-white rounded-[16px] p-6 text-center border border-border">
-                <Clock size={32} className="mx-auto text-text-muted mb-2" />
-                <p className="t-body text-text-muted">No shifts assigned yet</p>
-                <p className="t-small text-text-muted mt-1">Contact your admin to get assigned</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {assignedShifts.map(shift => {
-                  const status = getShiftStatus(shift)
-                  return (
-                    <div
-                      key={shift.id}
-                      className="bg-white rounded-[16px] p-4 border border-border"
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <p className="t-h2 text-text-primary">{shift.name}</p>
-                          <p className="t-mono text-text-secondary mt-0.5">
-                            {shift.start_time.slice(0, 5)} — {shift.end_time.slice(0, 5)}
-                          </p>
-                        </div>
-                        <span className={`t-small px-2 py-1 rounded-full font-medium ${
-                          status === 'open-now'
-                            ? 'bg-[#2E7D32]/10 text-[#2E7D32]'
-                            : status === 'upcoming'
-                            ? 'bg-[#1565C0]/10 text-[#1565C0]'
-                            : 'bg-border text-text-muted'
-                        }`}>
-                          {status === 'open-now' ? 'Now' : status === 'upcoming' ? 'Upcoming' : 'Ended'}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={() => handleOpenShiftClick(shift)}
-                        disabled={status !== 'open-now'}
-                        className={`w-full py-3 rounded-[12px] t-label flex items-center justify-center gap-2 transition-colors ${
-                          status === 'open-now'
-                            ? 'bg-primary text-white'
-                            : 'bg-bg-subtle text-text-muted cursor-not-allowed'
-                        }`}
-                      >
-                        {status === 'open-now' ? (
-                          <>Open Shift <ChevronRight size={16} /></>
-                        ) : status === 'upcoming' ? (
-                          `Starts at ${shift.start_time.slice(0, 5)}`
-                        ) : (
-                          `Ended at ${shift.end_time.slice(0, 5)}`
-                        )}
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
             )}
           </div>
-        )}
+        </div>
 
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Receipt size={20} className="text-primary" />
+              <span className="text-xs text-text-secondary">Today</span>
+            </div>
+            <p className="text-2xl font-bold text-text-primary mt-1">{stats.todayOrders}</p>
+            <p className="text-xs text-text-secondary">Orders</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <TrendingUp size={20} className="text-[#2E7D32]" />
+              <span className="text-xs text-text-secondary">Today</span>
+            </div>
+            <p className="text-2xl font-bold text-text-primary mt-1">₦{stats.todayRevenue.toLocaleString()}</p>
+            <p className="text-xs text-text-secondary">Revenue</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Users size={20} className="text-blue-500" />
+              <span className="text-xs text-text-secondary">Active</span>
+            </div>
+            <p className="text-2xl font-bold text-text-primary mt-1">{stats.activeStaff}</p>
+            <p className="text-xs text-text-secondary">Staff</p>
+          </div>
+          
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Package size={20} className="text-warning" />
+              <span className="text-xs text-text-secondary">Low Stock</span>
+            </div>
+            <p className="text-2xl font-bold text-text-primary mt-1">{stats.lowStockItems}</p>
+            <p className="text-xs text-text-secondary">Items</p>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => router.push('/dashboard/orders')}
+            disabled={!hasActiveShift}
+            className={`p-4 rounded-xl text-left transition-all ${
+              hasActiveShift 
+                ? 'bg-primary text-white hover:shadow-lg active:scale-95' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <p className="font-semibold">Take Order</p>
+            <p className="text-sm opacity-80">Start a new order</p>
+          </button>
+          
+          <button
+            onClick={() => router.push('/dashboard/stock')}
+            disabled={!hasActiveShift}
+            className={`p-4 rounded-xl text-left transition-all ${
+              hasActiveShift 
+                ? 'bg-white border border-primary text-primary hover:shadow-lg active:scale-95' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <p className="font-semibold">Manage Stock</p>
+            <p className="text-sm opacity-80">View and update stock</p>
+          </button>
+        </div>
       </div>
 
-      {/* Stock modal */}
-      {showStockModal && selectedShift && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
-          <div className="bg-white w-full max-w-md rounded-t-[20px] max-h-[85vh] flex flex-col">
-            <div className="px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
-              <h2 className="t-h2 text-text-primary">Opening Stock</h2>
-              <p className="t-small text-text-secondary mt-1">
-                {selectedShift.name} · Enter quantities for each item
-              </p>
-            </div>
-
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-              {menuItems.map(item => (
-                <div key={item.id} className="flex items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="t-body text-text-primary">{item.name}</p>
-                    <p className="t-small text-text-muted">{item.unit}</p>
-                  </div>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={stockEntries[item.id] ?? '0'}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^0-9]/g, '')
-                      setStockEntries(prev => ({ ...prev, [item.id]: value }))
-                    }}
-                    className="input-base w-24 text-center"
-                  />
+      {/* Open Shift Modal */}
+      {showShiftModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl md:rounded-2xl max-h-[90vh] flex flex-col">
+            <div className="px-5 pt-4 pb-3 border-b border-border flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4 md:hidden" />
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="t-h2 text-text-primary">Open Shift</p>
+                  <p className="t-small text-text-secondary mt-0.5">
+                    Select shift and set opening stock
+                  </p>
                 </div>
-              ))}
+                <button
+                  onClick={() => {
+                    setShowShiftModal(false)
+                    setSelectedShift('')
+                  }}
+                  className="text-text-muted w-9 h-9 flex items-center justify-center rounded-full hover:bg-bg-subtle"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <div className="px-5 py-4 border-t border-border flex gap-3 flex-shrink-0">
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {/* Shift Selection */}
+              <div>
+                <label className="block t-label text-text-primary mb-2">
+                  Select Shift
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {shifts.map(shift => (
+                    <button
+                      key={shift.id}
+                      onClick={() => setSelectedShift(shift.id)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        selectedShift === shift.id
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                    >
+                      <p className="font-medium text-text-primary">{shift.name}</p>
+                      <p className="text-xs text-text-secondary">
+                        {shift.start_time} - {shift.end_time}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Opening Stock */}
+              {selectedShift && (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="t-label text-text-primary">
+                      Opening Stock Quantities
+                    </label>
+                    <span className="text-xs text-text-secondary">
+                      Enter 0 for items not in stock
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {menuItems.map(item => (
+                      <div key={item.id} className="flex items-center gap-3">
+                        <span className="text-sm text-text-primary flex-1">{item.name}</span>
+                        <span className="text-xs text-text-secondary">{item.unit}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={stockQuantities[item.id] || ''}
+                          onChange={(e) => {
+                            setStockQuantities(prev => ({
+                              ...prev,
+                              [item.id]: e.target.value
+                            }))
+                          }}
+                          className="w-20 px-2 py-1.5 text-center border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                          placeholder="0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-border flex-shrink-0">
               <button
-                onClick={() => { setShowStockModal(false); setSelectedShift(null) }}
-                className="btn-secondary flex-1"
-                disabled={submitting}
+                onClick={handleOpenShift}
+                disabled={openingShift || !selectedShift}
+                className="w-full bg-primary text-white py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Cancel
+                {openingShift ? (
+                  <>
+                    <Loader2 size={20} className="animate-spin" />
+                    Opening Shift...
+                  </>
+                ) : (
+                  'Open Shift'
+                )}
               </button>
-              <button
-                onClick={handleConfirmOpenShift}
-                className="btn-primary flex-1"
-                disabled={submitting}
-              >
-                {submitting ? 'Opening...' : 'Confirm & Open'}
-              </button>
+              {!selectedShift && (
+                <p className="text-xs text-warning text-center mt-2">
+                  Please select a shift
+                </p>
+              )}
             </div>
           </div>
         </div>

@@ -37,7 +37,6 @@ type StockRow = {
 export default function OrdersPage() {
   const router = useRouter()
   const toast = useToast()
-  const [isRouterReady, setIsRouterReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -57,30 +56,14 @@ export default function OrdersPage() {
   const [addStockQty, setAddStockQty] = useState('')
   const [addingStock, setAddingStock] = useState(false)
 
-  // Safe navigation function - prevents router errors
-  const navigate = useCallback((path: string) => {
-    if (isRouterReady) {
-      router.push(path)
-    } else {
-      window.location.href = path
-    }
-  }, [isRouterReady, router])
-
-  // Set router ready
   useEffect(() => {
-    setIsRouterReady(true)
-  }, [])
-
-  useEffect(() => {
-    if (!isRouterReady) return
-    
     const userSession = getSession()
     if (!userSession) {
-      navigate('/auth/login')
+      router.push('/auth/login')
       return
     }
     loadData()
-  }, [isRouterReady, navigate])
+  }, [router])
 
   const loadData = async () => {
     try {
@@ -186,7 +169,7 @@ export default function OrdersPage() {
     }
   }
 
-  // Add Stock Function
+  // ✨ FIXED: Atomic stock increment using RPC function
   const handleAddStock = async () => {
     if (!addStockItem || !addStockQty) return
     const qty = parseInt(addStockQty)
@@ -197,40 +180,61 @@ export default function OrdersPage() {
 
     setAddingStock(true)
 
-    const { error } = await supabase
-      .from('shift_stock')
-      .update({
-        opening_qty: addStockItem.opening_qty + qty,
-        remaining_qty: addStockItem.remaining_qty + qty,
-      })
-      .eq('id', addStockItem.id)
+    try {
+      // Atomic increment using RPC function
+      const { data: updatedStock, error: stockError } = await supabase
+        .rpc('increment_stock', {
+          p_stock_id: addStockItem.id,
+          p_quantity: qty
+        })
 
-    if (error) {
-      toast('Error updating stock: ' + error.message, 'error')
+      if (stockError) {
+        toast('Error updating stock: ' + stockError.message, 'error')
+        setAddingStock(false)
+        return
+      }
+
+      if (!updatedStock || updatedStock.length === 0) {
+        toast('Failed to update stock. Please try again.', 'error')
+        setAddingStock(false)
+        return
+      }
+
+      // Refresh stock data
+      const today = new Date().toISOString().split('T')[0]
+      const { data: stock, error: refreshError } = await supabase
+        .from('shift_stock')
+        .select('*')
+        .eq('shift_date', today)
+        .eq('shift_id', shiftId)
+
+      if (refreshError) {
+        toast('Stock updated but failed to refresh display', 'warning')
+        setAddingStock(false)
+        setShowAddStock(false)
+        setAddStockItem(null)
+        setAddStockQty('')
+        return
+      }
+
+      if (stock) {
+        setStockRows(stock)
+        const stockMapData: Record<string, number> = {}
+        stock.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
+        setStockMap(stockMapData)
+      }
+
+      toast(`${qty} ${addStockItem.unit}(s) added to ${addStockItem.item_name}`, 'success')
+      setShowAddStock(false)
+      setAddStockItem(null)
+      setAddStockQty('')
+      
+    } catch (err) {
+      console.error('Stock increment failed:', err)
+      toast('Failed to update stock. Please try again.', 'error')
+    } finally {
       setAddingStock(false)
-      return
     }
-
-    // Refresh stock data
-    const today = new Date().toISOString().split('T')[0]
-    const { data: stock, error: stockError } = await supabase
-      .from('shift_stock')
-      .select('*')
-      .eq('shift_date', today)
-      .eq('shift_id', shiftId)
-
-    if (!stockError && stock) {
-      setStockRows(stock)
-      const stockMapData: Record<string, number> = {}
-      stock.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
-      setStockMap(stockMapData)
-    }
-
-    toast(`${qty} ${addStockItem.unit}(s) added to ${addStockItem.item_name}`, 'success')
-    setShowAddStock(false)
-    setAddStockItem(null)
-    setAddStockQty('')
-    setAddingStock(false)
   }
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
@@ -268,7 +272,7 @@ export default function OrdersPage() {
           <h2 className="text-lg font-semibold mb-2">Unable to load orders</h2>
           <p className="text-gray-500 mb-4">{error}</p>
           <button 
-            onClick={() => navigate('/dashboard')}
+            onClick={() => router.push('/dashboard')}
             className="bg-primary text-white px-6 py-2 rounded-lg w-full"
           >
             Go to Dashboard
@@ -346,7 +350,7 @@ export default function OrdersPage() {
               onClick={() => addToCart(item)}
               disabled={outOfStock}
               className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all active:scale-95 ${
-                outOfStock ? 'opacity-50' : inCart ? 'border-primary shadow-md' : 'border-gray-200'
+                outOfStock ? 'opacity-50 cursor-not-allowed' : inCart ? 'border-primary shadow-md' : 'border-gray-200'
               }`}
             >
               {inCart && (
@@ -427,7 +431,7 @@ export default function OrdersPage() {
               <button
                 onClick={() => {
                   setShowCart(false)
-                  navigate('/dashboard/payment')
+                  router.push('/dashboard/payment')
                 }}
                 className="w-full bg-primary text-white py-3 rounded-xl font-medium active:scale-98 transition-transform"
               >
@@ -458,7 +462,11 @@ export default function OrdersPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => setShowAddStock(false)}
+                  onClick={() => {
+                    setShowAddStock(false)
+                    setAddStockItem(null)
+                    setAddStockQty('')
+                  }}
                   className="text-text-muted min-h-0 min-w-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-bg-subtle"
                 >
                   <X size={18} />

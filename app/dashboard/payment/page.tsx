@@ -168,6 +168,7 @@ export default function PaymentPage() {
       subtotal:   i.price * i.quantity,
     }))
 
+    // Insert the order first
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -191,6 +192,7 @@ export default function PaymentPage() {
       return
     }
 
+    // Log the activity
     await supabase.from('shift_activities').insert({
       shift_date:     today,
       shift_id:       shift.shift_id,
@@ -206,25 +208,49 @@ export default function PaymentPage() {
       },
     })
 
+    // ✨ FIXED: Atomic stock updates using RPC function
     for (const item of cart) {
-      const { data: stock } = await supabase
-        .from('shift_stock')
-        .select('remaining_qty, sold_qty')
-        .eq('shift_date', today)
-        .eq('shift_id', shift.shift_id)
-        .eq('item_id', item.id)
-        .maybeSingle()
-
-      if (stock) {
-        await supabase
+      try {
+        // Get the shift_stock record ID
+        const { data: stockRecord, error: fetchError } = await supabase
           .from('shift_stock')
-          .update({
-            sold_qty:      stock.sold_qty      + item.quantity,
-            remaining_qty: stock.remaining_qty - item.quantity,
-          })
+          .select('id, remaining_qty, sold_qty')
           .eq('shift_date', today)
           .eq('shift_id', shift.shift_id)
           .eq('item_id', item.id)
+          .maybeSingle()
+
+        if (fetchError || !stockRecord) {
+          toast(`Stock record not found for ${item.name}`, 'error')
+          setProcessing(false)
+          return
+        }
+
+        // Atomic decrement using RPC function
+        const { data: updatedStock, error: stockError } = await supabase
+          .rpc('decrement_stock', {
+            p_stock_id: stockRecord.id,
+            p_quantity: item.quantity
+          })
+
+        if (stockError) {
+          console.error('Stock decrement error:', stockError)
+          toast(`Failed to update stock for ${item.name}: ${stockError.message}`, 'error')
+          setProcessing(false)
+          return
+        }
+
+        if (!updatedStock || updatedStock.length === 0) {
+          toast(`Insufficient stock for ${item.name} (only ${stockRecord.remaining_qty} left)`, 'error')
+          setProcessing(false)
+          return
+        }
+
+      } catch (err) {
+        console.error('Stock update failed:', err)
+        toast(`Failed to update stock for ${item.name}`, 'error')
+        setProcessing(false)
+        return
       }
     }
 
@@ -377,7 +403,7 @@ export default function PaymentPage() {
 
       </div>
 
-      {/* Sticky confirm button - moved up with proper bottom spacing */}
+      {/* Sticky confirm button */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent pt-8 z-20">
         <button
           onClick={handleConfirmOrder}

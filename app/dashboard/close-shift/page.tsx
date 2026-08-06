@@ -44,7 +44,6 @@ export default function CloseShiftPage() {
   const checkActiveShift = async () => {
     const today = new Date().toISOString().split('T')[0]
     
-    // FIX: Changed from .single() to .maybeSingle()
     const { data, error } = await supabase
       .from('shift_sessions')
       .select('*, shifts(*)')
@@ -53,7 +52,6 @@ export default function CloseShiftPage() {
       .maybeSingle()
 
     if (error) {
-      console.error('Error checking active shift:', error)
       toast('Error loading shift', 'error')
       router.push('/dashboard')
       return
@@ -65,7 +63,6 @@ export default function CloseShiftPage() {
       return
     }
 
-    console.log('Active shift found for closing:', data.shift_id)
     activeShiftRef.current = data
     setActiveShift(data)
     await fetchStockData(data.shift_id)
@@ -81,12 +78,9 @@ export default function CloseShiftPage() {
       .eq('shift_id', shiftId)
 
     if (error) {
-      console.error('Error fetching stock:', error)
       toast('Error loading stock data', 'error')
       return
     }
-
-    console.log('Stock records found for closing:', data?.length || 0)
 
     if (data && data.length > 0) {
       setStockItems(data.map(item => ({
@@ -96,7 +90,6 @@ export default function CloseShiftPage() {
         variance: 0,
       })))
     } else {
-      console.warn('No stock records found for this shift!')
       toast('No stock data found. Please reopen the shift.', 'warning')
       router.push('/dashboard')
     }
@@ -134,124 +127,92 @@ export default function CloseShiftPage() {
 
     const today = new Date().toISOString().split('T')[0]
 
-    // Step 1 — batch insert close records
-    const closeRecords = stockItems.map(item => ({
-      shift_date: today,
-      shift_id: shift.shift_id,
-      closer_staff_id: userSession.id,
+    // Prepare stock close data for the transaction
+    // REMOVED: item_name and unit (not in shift_close table)
+    const stockCloseData = stockItems.map(item => ({
       item_id: item.item_id,
       opening_qty: item.opening_qty,
       sold_qty: item.sold_qty,
-      actual_remaining: item.actual_remaining,
-      variance: item.variance,
+      remaining_qty: item.actual_remaining,
+      variance: item.variance
     }))
 
-    if (closeRecords.length > 0) {
-      const { error: closeError } = await supabase
-        .from('shift_close')
-        .insert(closeRecords)
+    try {
+      // Single atomic transaction using RPC function
+      const { data: result, error: txError } = await supabase
+        .rpc('close_shift', {
+          p_shift_session_id: shift.id,
+          p_shift_id: shift.shift_id,
+          p_shift_date: today,
+          p_staff_id: userSession.id,
+          p_staff_name: `${userSession.first_name} ${userSession.surname}`,
+          p_staff_role: userSession.role,
+          p_stock_data: stockCloseData,
+          p_shift_name: shift.shifts?.name || 'Unknown'
+        })
 
-      if (closeError) {
-        console.error('Close record error:', closeError)
-        toast('Error saving stock count: ' + closeError.message, 'error')
-        setSubmitting(false)
-        return
+      if (txError || !result?.success) {
+        throw new Error(result?.error || txError?.message || 'Failed to close shift')
       }
-    }
 
-    // Step 2 — fetch orders and expenses in parallel
-    const [ordersRes, expensesRes] = await Promise.all([
-      supabase
-        .from('orders')
-        .select('total, payment_method, cash_amount, transfer_amount')
-        .eq('shift_date', today)
-        .eq('shift_id', shift.shift_id),
-      supabase
-        .from('expenses')
-        .select('amount, payment_method')
-        .eq('shift_date', today)
-        .eq('shift_id', shift.shift_id),
-    ])
+      // Get orders and expenses for the summary
+      const [ordersRes, expensesRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('total, payment_method, cash_amount, transfer_amount')
+          .eq('shift_date', today)
+          .eq('shift_id', shift.shift_id),
+        supabase
+          .from('expenses')
+          .select('amount, payment_method')
+          .eq('shift_date', today)
+          .eq('shift_id', shift.shift_id),
+      ])
 
-    const orders = ordersRes.data || []
-    const expenses = expensesRes.data || []
+      const orders = ordersRes.data || []
+      const expenses = expensesRes.data || []
 
-    const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0)
-    const cashRevenue = orders.reduce((s, o) => s + (o.cash_amount || 0), 0)
-    const transferRevenue = orders.reduce((s, o) => s + (o.transfer_amount || 0), 0)
-    const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0)
-    const cashExpenses = expenses.filter(e => e.payment_method === 'cash').reduce((s, e) => s + e.amount, 0)
-    const transferExpenses = expenses.filter(e => e.payment_method === 'transfer').reduce((s, e) => s + e.amount, 0)
+      const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0)
+      const cashRevenue = orders.reduce((s, o) => s + (o.cash_amount || 0), 0)
+      const transferRevenue = orders.reduce((s, o) => s + (o.transfer_amount || 0), 0)
+      const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0)
+      const cashExpenses = expenses.filter(e => e.payment_method === 'cash').reduce((s, e) => s + e.amount, 0)
+      const transferExpenses = expenses.filter(e => e.payment_method === 'transfer').reduce((s, e) => s + e.amount, 0)
 
-    // Step 3 — log activity
-    await supabase.from('shift_activities').insert({
-      shift_date: today,
-      shift_id: shift.shift_id,
-      staff_id: userSession.id,
-      staff_name: `${userSession.first_name} ${userSession.surname}`,
-      staff_role: userSession.role,
-      action_type: 'CLOSE_SHIFT',
-      action_details: { closed_at: new Date().toISOString() },
-    })
+      // Save summary and navigate
+      const summary = {
+        shiftName: shift.shifts?.name,
+        shiftDate: today,
+        openedAt: shift.opened_at,
+        closedAt: new Date().toISOString(),
+        totalRevenue,
+        cashRevenue,
+        transferRevenue,
+        totalExpenses,
+        cashExpenses,
+        transferExpenses,
+        netRevenue: totalRevenue - totalExpenses,
+        orderCount: orders.length,
+        stockItems: stockItems.map(item => ({
+          name: item.item_name,
+          opening: item.opening_qty,
+          sold: item.sold_qty,
+          expected: item.expected_remaining,
+          actual: item.actual_remaining,
+          variance: item.variance,
+        })),
+      }
 
-    // Step 4 — update shift session status
-    const { error: sessionError } = await supabase
-      .from('shift_sessions')
-      .update({
-        status: 'closed',
-        closer_staff_id: userSession.id,
-        closed_at: new Date().toISOString(),
-      })
-      .eq('id', shift.id)
+      localStorage.setItem('shift_summary', JSON.stringify(summary))
+      toast(`Shift closed successfully (${result.items_closed} items recorded)`, 'success')
+      router.push('/dashboard/shift-summary')
 
-    if (sessionError) {
-      console.error('Session update error:', sessionError)
-      toast('Error closing shift session: ' + sessionError.message, 'error')
+    } catch (error: any) {
+      console.error('Close shift error:', error)
+      toast(error.message || 'Failed to close shift. Please try again.', 'error')
+    } finally {
       setSubmitting(false)
-      return
     }
-
-    // Step 5 — verify update worked
-    const { data: verifyData } = await supabase
-      .from('shift_sessions')
-      .select('status')
-      .eq('id', shift.id)
-      .maybeSingle()
-
-    if (verifyData?.status !== 'closed') {
-      toast('Shift status did not update. Please try again.', 'error')
-      setSubmitting(false)
-      return
-    }
-
-    // Step 6 — save summary and navigate
-    const summary = {
-      shiftName: shift.shifts?.name,
-      shiftDate: today,
-      openedAt: shift.opened_at,
-      closedAt: new Date().toISOString(),
-      totalRevenue,
-      cashRevenue,
-      transferRevenue,
-      totalExpenses,
-      cashExpenses,
-      transferExpenses,
-      netRevenue: totalRevenue - totalExpenses,
-      orderCount: orders.length,
-      stockItems: stockItems.map(item => ({
-        name: item.item_name,
-        opening: item.opening_qty,
-        sold: item.sold_qty,
-        expected: item.expected_remaining,
-        actual: item.actual_remaining,
-        variance: item.variance,
-      })),
-    }
-
-    localStorage.setItem('shift_summary', JSON.stringify(summary))
-    toast('Shift closed successfully', 'success')
-    router.push('/dashboard/shift-summary')
-    setSubmitting(false)
   }
 
   const totals = stockItems.reduce(

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
@@ -24,6 +24,9 @@ export default function StockBoard() {
   const [activeShift, setActiveShift] = useState<any>(null)
   const [thresholds, setThresholds] = useState({ high: 30, low: 10 })
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  
+  // Use a ref to track if we've already set up the subscription
+  const subscriptionSetupDone = useRef<boolean>(false)
 
   useEffect(() => {
     const userSession = getSession()
@@ -33,7 +36,12 @@ export default function StockBoard() {
     }
     fetchThresholds()
     checkActiveShift()
-  }, [router])
+
+    // Cleanup on unmount
+    return () => {
+      subscriptionSetupDone.current = false
+    }
+  }, [])
 
   const fetchThresholds = async () => {
     const { data } = await supabase.from('settings').select('key, value')
@@ -51,7 +59,7 @@ export default function StockBoard() {
       .select('*, shifts(*)')
       .eq('shift_date', today)
       .eq('status', 'open')
-      .single()
+      .maybeSingle()
 
     if (!data || error) {
       toast('No active shift. Please open a shift first.', 'warning')
@@ -61,7 +69,7 @@ export default function StockBoard() {
 
     setActiveShift(data)
     await fetchStockData(data.shift_id)
-    subscribeToStockUpdates(data.shift_id)
+    setupRealtimeSubscription(data.shift_id)
     setLoading(false)
   }
 
@@ -80,31 +88,69 @@ export default function StockBoard() {
     }
   }
 
-  const subscribeToStockUpdates = (shiftId: string) => {
+  const setupRealtimeSubscription = (shiftId: string) => {
+    // Prevent multiple setups
+    if (subscriptionSetupDone.current) {
+      console.log('Subscription already set up, skipping')
+      return
+    }
+
     const today = new Date().toISOString().split('T')[0]
+    console.log(`Setting up realtime subscription for shift: ${shiftId}`)
+
+    // Create a unique channel name
+    const channelName = `stock-${shiftId}-${Date.now()}`
+    
     const channel = supabase
-      .channel(`stock-updates-${shiftId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: 'shift_stock',
-          filter: `shift_date=eq.${today}`,
         },
         (payload) => {
-          setStockItems(prev =>
-            prev.map(item =>
-              item.id === payload.new.id ? { ...item, ...payload.new } : item
+          // Update stock items when a change occurs
+          if (payload.new.shift_id === shiftId && payload.new.shift_date === today) {
+            setStockItems(prev =>
+              prev.map(item =>
+                item.id === payload.new.id ? { ...item, ...payload.new } : item
+              )
             )
-          )
-          setLastUpdated(new Date())
+            setLastUpdated(new Date())
+          }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to stock updates')
+          subscriptionSetupDone.current = true
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Channel error, will retry in 5 seconds')
+          subscriptionSetupDone.current = false
+          setTimeout(() => {
+            setupRealtimeSubscription(shiftId)
+          }, 5000)
+        }
+      })
 
-    return () => { supabase.removeChannel(channel) }
+    // Store channel for cleanup
+    ;(window as any).__stockChannel = channel
   }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const channel = (window as any).__stockChannel
+      if (channel) {
+        console.log('Cleaning up subscription')
+        supabase.removeChannel(channel)
+        ;(window as any).__stockChannel = null
+        subscriptionSetupDone.current = false
+      }
+    }
+  }, [])
 
   const getStockStatus = (remaining: number, opening: number) => {
     if (opening === 0) return {
