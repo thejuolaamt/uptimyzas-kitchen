@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { getActiveShift, ensureJoined, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, X, ChevronDown } from 'lucide-react'
 
@@ -28,9 +29,7 @@ type StockRow = {
   id: string
   item_id: string
   item_name: string
-  remaining_qty: number
-  opening_qty: number
-  sold_qty: number
+  quantity: number
   unit: string
 }
 
@@ -46,9 +45,11 @@ export default function OrdersPage() {
   const [stockRows, setStockRows] = useState<StockRow[]>([])
   const [showCart, setShowCart] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [shiftName, setShiftName] = useState('')
-  const [shiftId, setShiftId] = useState<string>('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+
+  // Active shift state
+  const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
+  const [noShift, setNoShift] = useState(false)
 
   // Add stock modal state
   const [showAddStock, setShowAddStock] = useState(false)
@@ -69,22 +70,9 @@ export default function OrdersPage() {
     try {
       setLoading(true)
       setError(null)
-      
-      const today = new Date().toISOString().split('T')[0]
-      
-      // Get active shift
-      const { data: shift, error: shiftError } = await supabase
-        .from('shift_sessions')
-        .select('*, shifts(*)')
-        .eq('shift_date', today)
-        .eq('status', 'open')
-        .maybeSingle()
+      setNoShift(false)
 
-      if (shiftError) throw new Error(shiftError.message)
-      if (!shift) throw new Error('No active shift. Please open a shift first.')
-
-      setShiftName(shift.shifts?.name || 'Active')
-      setShiftId(shift.shift_id)
+      const userSession = getSession()
 
       // Get menu items
       const { data: menu, error: menuError } = await supabase
@@ -97,18 +85,32 @@ export default function OrdersPage() {
       setMenuItems(menu || [])
       setCategories(['All', ...new Set(menu?.map(i => i.category) || [])])
 
-      // Get stock for this shift
+      // Find the currently open shift
+      const shift = await getActiveShift()
+      if (!shift) {
+        setNoShift(true)
+        setLoading(false)
+        return
+      }
+      setActiveShift(shift)
+
+      // Record this user as part of the shift (no-op if already joined)
+      if (userSession) {
+        await ensureJoined(shift.id, userSession.id)
+      }
+
+      // Get current stock for THIS shift
       const { data: stock, error: stockError } = await supabase
         .from('shift_stock')
         .select('*')
-        .eq('shift_date', today)
-        .eq('shift_id', shift.shift_id)
+        .eq('shift_id', shift.id)
+        .order('item_name')
 
       if (stockError) throw new Error(stockError.message)
-      
+
       setStockRows(stock || [])
       const stockMapData: Record<string, number> = {}
-      stock?.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
+      stock?.forEach(s => { stockMapData[s.item_id] = s.quantity })
       setStockMap(stockMapData)
 
       // Load saved cart
@@ -140,7 +142,7 @@ export default function OrdersPage() {
       toast(`${item.name} is out of stock`, 'warning')
       return
     }
-    
+
     const existing = cart.find(c => c.id === item.id)
     if (existing) {
       saveCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))
@@ -152,7 +154,7 @@ export default function OrdersPage() {
   const updateQuantity = (itemId: string, delta: number) => {
     const item = cart.find(c => c.id === itemId)
     if (!item) return
-    
+
     if (delta > 0) {
       const remaining = getRemainingStock(itemId)
       if (remaining <= 0) {
@@ -160,7 +162,7 @@ export default function OrdersPage() {
         return
       }
     }
-    
+
     const newQuantity = item.quantity + delta
     if (newQuantity <= 0) {
       saveCart(cart.filter(c => c.id !== itemId))
@@ -169,9 +171,8 @@ export default function OrdersPage() {
     }
   }
 
-  // ✨ FIXED: Atomic stock increment using RPC function
   const handleAddStock = async () => {
-    if (!addStockItem || !addStockQty) return
+    if (!addStockItem || !addStockQty || !activeShift) return
     const qty = parseInt(addStockQty)
     if (isNaN(qty) || qty <= 0) {
       toast('Enter a valid quantity', 'warning')
@@ -181,7 +182,6 @@ export default function OrdersPage() {
     setAddingStock(true)
 
     try {
-      // Atomic increment using RPC function
       const { data: updatedStock, error: stockError } = await supabase
         .rpc('increment_stock', {
           p_stock_id: addStockItem.id,
@@ -200,13 +200,11 @@ export default function OrdersPage() {
         return
       }
 
-      // Refresh stock data
-      const today = new Date().toISOString().split('T')[0]
       const { data: stock, error: refreshError } = await supabase
         .from('shift_stock')
         .select('*')
-        .eq('shift_date', today)
-        .eq('shift_id', shiftId)
+        .eq('shift_id', activeShift.id)
+        .order('item_name')
 
       if (refreshError) {
         toast('Stock updated but failed to refresh display', 'warning')
@@ -220,7 +218,7 @@ export default function OrdersPage() {
       if (stock) {
         setStockRows(stock)
         const stockMapData: Record<string, number> = {}
-        stock.forEach(s => { stockMapData[s.item_id] = s.remaining_qty })
+        stock.forEach(s => { stockMapData[s.item_id] = s.quantity })
         setStockMap(stockMapData)
       }
 
@@ -228,7 +226,7 @@ export default function OrdersPage() {
       setShowAddStock(false)
       setAddStockItem(null)
       setAddStockQty('')
-      
+
     } catch (err) {
       console.error('Stock increment failed:', err)
       toast('Failed to update stock. Please try again.', 'error')
@@ -239,11 +237,10 @@ export default function OrdersPage() {
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const filteredItems = selectedCategory === 'All' 
-    ? menuItems 
+  const filteredItems = selectedCategory === 'All'
+    ? menuItems
     : menuItems.filter(i => i.category === selectedCategory)
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       setIsDropdownOpen(false)
@@ -264,6 +261,29 @@ export default function OrdersPage() {
     )
   }
 
+  // No shift is currently open — the dedicated "start/join shift" screen
+  // is the next piece to build; for now this stops the page from trying
+  // to sell against stock that doesn't exist yet.
+  if (noShift) {
+    return (
+      <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg p-6 text-center max-w-sm">
+          <div className="text-4xl mb-4">🕐</div>
+          <h2 className="text-lg font-semibold mb-2">No shift is open</h2>
+          <p className="text-gray-500 mb-4">
+            Someone needs to start a shift before orders can be taken.
+          </p>
+          <button
+            onClick={() => router.push('/dashboard/shift')}
+            className="bg-primary text-white px-6 py-2 rounded-lg w-full"
+          >
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
@@ -271,8 +291,8 @@ export default function OrdersPage() {
           <div className="text-red-500 text-5xl mb-4">⚠️</div>
           <h2 className="text-lg font-semibold mb-2">Unable to load orders</h2>
           <p className="text-gray-500 mb-4">{error}</p>
-          <button 
-            onClick={() => router.push('/dashboard')}
+          <button
+            onClick={() => router.push('/dashboard/shift')}
             className="bg-primary text-white px-6 py-2 rounded-lg w-full"
           >
             Go to Dashboard
@@ -287,7 +307,7 @@ export default function OrdersPage() {
       {/* Header with Add Stock Button */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="px-4 py-3 flex justify-between items-center">
-          <span className="text-sm font-medium text-primary">{shiftName} Shift</span>
+          <span className="text-sm font-medium text-primary">Take an Order</span>
           <button
             onClick={() => setShowAddStock(true)}
             className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm font-medium"
@@ -296,8 +316,8 @@ export default function OrdersPage() {
             Add Stock
           </button>
         </div>
-        
-        {/* Category Dropdown Filter - Clean and Mobile Friendly */}
+
+        {/* Category Dropdown Filter */}
         <div className="px-4 pb-3">
           <div className="relative">
             <button
@@ -312,7 +332,7 @@ export default function OrdersPage() {
               </span>
               <ChevronDown size={18} className={`transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
-            
+
             {isDropdownOpen && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
                 {categories.map(cat => (
@@ -337,19 +357,19 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Menu Grid - Responsive: 2 columns on mobile, 3 on tablet, 4 on desktop */}
+      {/* Menu Grid */}
       <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {filteredItems.map(item => {
           const remaining = getRemainingStock(item.id)
           const outOfStock = remaining <= 0
           const inCart = cart.find(c => c.id === item.id)
-          
+
           return (
             <button
               key={item.id}
               onClick={() => addToCart(item)}
               disabled={outOfStock}
-              className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all active:scale-95 ${
+              className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all active:scale-95 menu-item ${
                 outOfStock ? 'opacity-50 cursor-not-allowed' : inCart ? 'border-primary shadow-md' : 'border-gray-200'
               }`}
             >
@@ -369,7 +389,7 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {/* Cart Bar - Positioned above bottom navigation */}
+      {/* Cart Bar */}
       {cartCount > 0 && (
         <div className="fixed bottom-[68px] left-0 right-0 p-4 bg-white border-t shadow-lg z-30">
           <button
@@ -388,15 +408,15 @@ export default function OrdersPage() {
       {/* Cart Modal */}
       {showCart && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white w-full rounded-t-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-white w-full rounded-t-2xl max-h-[80vh] flex flex-col modal-content">
             <div className="p-4 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold">Your Order</h2>
               <button onClick={() => setShowCart(false)} className="text-gray-500">
                 <X size={24} />
               </button>
             </div>
-            
-            <div className="flex-1 overflow-auto p-4 space-y-3">
+
+            <div className="flex-1 overflow-auto p-4 space-y-3 modal-scroll">
               {cart.map(item => (
                 <div key={item.id} className="flex justify-between items-center">
                   <div>
@@ -422,7 +442,7 @@ export default function OrdersPage() {
                 </div>
               ))}
             </div>
-            
+
             <div className="p-4 border-t">
               <div className="flex justify-between mb-4">
                 <span className="font-semibold">Total</span>
@@ -451,14 +471,14 @@ export default function OrdersPage() {
       {/* Add Stock Modal */}
       {showAddStock && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
-          <div className="bg-white w-full rounded-t-[24px] max-h-[85vh] flex flex-col">
+          <div className="bg-white w-full rounded-t-[24px] max-h-[85vh] flex flex-col modal-content">
             <div className="px-5 pt-4 pb-3 border-b border-border flex-shrink-0">
               <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
               <div className="flex justify-between items-center">
                 <div>
                   <p className="t-h2 text-text-primary">Top Up Stock</p>
                   <p className="t-small text-text-secondary mt-0.5">
-                    Add more units to any item mid-shift
+                    Add more units to any item
                   </p>
                 </div>
                 <button
@@ -475,56 +495,39 @@ export default function OrdersPage() {
             </div>
 
             {!addStockItem ? (
-              <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-border">
+              <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-border modal-scroll">
                 {stockRows.length === 0 ? (
                   <p className="t-body text-text-muted text-center py-10">
                     No stock data available
                   </p>
                 ) : (
-                  stockRows
-                    .sort((a, b) => a.item_name.localeCompare(b.item_name))
-                    .map(row => (
-                      <button
-                        key={row.id}
-                        onClick={() => setAddStockItem(row)}
-                        className="w-full flex justify-between items-center py-3.5 min-h-0 text-left active:bg-gray-50"
-                      >
-                        <div>
-                          <p className="t-body text-text-primary font-medium">{row.item_name}</p>
-                          <p className="t-small text-text-muted">{row.unit}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className={`t-mono font-semibold ${
-                            row.remaining_qty <= 0 ? 'text-danger' : 'text-text-primary'
-                          }`}>
-                            {row.remaining_qty} remaining
-                          </p>
-                          <p className="t-small text-text-muted">
-                            {row.sold_qty} sold
-                          </p>
-                        </div>
-                      </button>
-                    ))
+                  stockRows.map(row => (
+                    <button
+                      key={row.id}
+                      onClick={() => setAddStockItem(row)}
+                      className="w-full flex justify-between items-center py-3.5 min-h-0 text-left list-item"
+                    >
+                      <div>
+                        <p className="t-body text-text-primary font-medium">{row.item_name}</p>
+                        <p className="t-small text-text-muted">{row.unit}</p>
+                      </div>
+                      <p className={`t-mono font-semibold ${
+                        row.quantity <= 0 ? 'text-danger' : 'text-text-primary'
+                      }`}>
+                        {row.quantity} remaining
+                      </p>
+                    </button>
+                  ))
                 )}
               </div>
             ) : (
               <div className="px-5 py-6 space-y-5 flex-1">
                 <div className="bg-primary/5 border border-primary/20 rounded-[14px] p-4">
                   <p className="t-h3 text-primary">{addStockItem.item_name}</p>
-                  <div className="flex gap-4 mt-2">
-                    <div>
-                      <p className="t-small text-text-muted">Currently remaining</p>
-                      <p className="t-mono font-semibold text-text-primary">
-                        {addStockItem.remaining_qty} {addStockItem.unit}(s)
-                      </p>
-                    </div>
-                    <div>
-                      <p className="t-small text-text-muted">Sold this shift</p>
-                      <p className="t-mono font-semibold text-text-primary">
-                        {addStockItem.sold_qty}
-                      </p>
-                    </div>
-                  </div>
+                  <p className="t-small text-text-muted mt-1">Currently remaining</p>
+                  <p className="t-mono font-semibold text-text-primary">
+                    {addStockItem.quantity} {addStockItem.unit}(s)
+                  </p>
                 </div>
 
                 <div>
@@ -544,7 +547,7 @@ export default function OrdersPage() {
                     <p className="t-small text-text-secondary mt-2 text-center">
                       New total will be{' '}
                       <span className="font-semibold text-primary">
-                        {addStockItem.remaining_qty + parseInt(addStockQty)} {addStockItem.unit}(s)
+                        {addStockItem.quantity + parseInt(addStockQty)} {addStockItem.unit}(s)
                       </span>
                     </p>
                   )}

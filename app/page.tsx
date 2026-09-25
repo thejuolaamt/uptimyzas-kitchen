@@ -10,11 +10,7 @@ export default function HomePage() {
   useEffect(() => {
     const session = getSession()
     if (session) {
-      if (session.role === 'admin') {
-        router.push('/admin')
-      } else {
-        router.push('/dashboard')
-      }
+      router.push('/dashboard')
     } else {
       router.push('/auth/login')
     }

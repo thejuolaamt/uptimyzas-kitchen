@@ -4,27 +4,29 @@ import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import { Activity } from 'lucide-react'
 
-type StockItem = {
+type StockRow = {
   id: string
+  item_id: string
   item_name: string
-  opening_qty: number
-  sold_qty: number
-  remaining_qty: number
   unit: string
+  opening_qty: number
+  added_qty: number
+  quantity: number
 }
 
 export default function StockBoard() {
   const router = useRouter()
   const toast = useToast()
   const [loading, setLoading] = useState(true)
-  const [stockItems, setStockItems] = useState<StockItem[]>([])
-  const [activeShift, setActiveShift] = useState<any>(null)
+  const [stockItems, setStockItems] = useState<StockRow[]>([])
+  const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
   const [thresholds, setThresholds] = useState({ high: 30, low: 10 })
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
-  
+
   // Use a ref to track if we've already set up the subscription
   const subscriptionSetupDone = useRef<boolean>(false)
 
@@ -37,7 +39,6 @@ export default function StockBoard() {
     fetchThresholds()
     checkActiveShift()
 
-    // Cleanup on unmount
     return () => {
       subscriptionSetupDone.current = false
     }
@@ -53,32 +54,30 @@ export default function StockBoard() {
   }
 
   const checkActiveShift = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    const { data, error } = await supabase
-      .from('shift_sessions')
-      .select('*, shifts(*)')
-      .eq('shift_date', today)
-      .eq('status', 'open')
-      .maybeSingle()
+    try {
+      const shift = await getActiveShift()
 
-    if (!data || error) {
-      toast('No active shift. Please open a shift first.', 'warning')
-      router.push('/dashboard')
-      return
+      if (!shift) {
+        toast('No active shift. Please start a shift first.', 'warning')
+        router.push('/dashboard/shift')
+        return
+      }
+
+      setActiveShift(shift)
+      await fetchStockData(shift.id)
+      setupRealtimeSubscription(shift.id)
+      setLoading(false)
+    } catch (err: any) {
+      console.error(err)
+      toast('Could not load shift status: ' + err.message, 'error')
+      setLoading(false)
     }
-
-    setActiveShift(data)
-    await fetchStockData(data.shift_id)
-    setupRealtimeSubscription(data.shift_id)
-    setLoading(false)
   }
 
   const fetchStockData = async (shiftId: string) => {
-    const today = new Date().toISOString().split('T')[0]
     const { data } = await supabase
       .from('shift_stock')
       .select('*')
-      .eq('shift_date', today)
       .eq('shift_id', shiftId)
       .order('item_name')
 
@@ -95,12 +94,11 @@ export default function StockBoard() {
       return
     }
 
-    const today = new Date().toISOString().split('T')[0]
     console.log(`Setting up realtime subscription for shift: ${shiftId}`)
 
     // Create a unique channel name
     const channelName = `stock-${shiftId}-${Date.now()}`
-    
+
     const channel = supabase
       .channel(channelName)
       .on(
@@ -112,7 +110,7 @@ export default function StockBoard() {
         },
         (payload) => {
           // Update stock items when a change occurs
-          if (payload.new.shift_id === shiftId && payload.new.shift_date === today) {
+          if (payload.new.shift_id === shiftId) {
             setStockItems(prev =>
               prev.map(item =>
                 item.id === payload.new.id ? { ...item, ...payload.new } : item
@@ -152,6 +150,10 @@ export default function StockBoard() {
     }
   }, [])
 
+  // sold/remaining are derived, not stored — same formula used everywhere else
+  const soldQty = (item: StockRow) => item.opening_qty + item.added_qty - item.quantity
+  const remainingQty = (item: StockRow) => item.quantity
+
   const getStockStatus = (remaining: number, opening: number) => {
     if (opening === 0) return {
       color: 'text-danger',
@@ -185,9 +187,9 @@ export default function StockBoard() {
   }
 
   // Summary counts
-  const goodCount     = stockItems.filter(i => getStockStatus(i.remaining_qty, i.opening_qty).label === 'Good').length
-  const lowCount      = stockItems.filter(i => getStockStatus(i.remaining_qty, i.opening_qty).label === 'Low').length
-  const criticalCount = stockItems.filter(i => ['Critical', 'No Stock'].includes(getStockStatus(i.remaining_qty, i.opening_qty).label)).length
+  const goodCount     = stockItems.filter(i => getStockStatus(remainingQty(i), i.opening_qty).label === 'Good').length
+  const lowCount      = stockItems.filter(i => getStockStatus(remainingQty(i), i.opening_qty).label === 'Low').length
+  const criticalCount = stockItems.filter(i => ['Critical', 'No Stock'].includes(getStockStatus(remainingQty(i), i.opening_qty).label)).length
 
   if (loading) {
     return (
@@ -206,7 +208,11 @@ export default function StockBoard() {
           <div className="flex justify-between items-start">
             <div>
               <p className="t-small text-white/60 uppercase tracking-widest mb-1">Active Shift</p>
-              <p className="t-h1 text-white">{activeShift?.shifts?.name}</p>
+              <p className="t-h1 text-white">
+                Started {activeShift
+                  ? new Date(activeShift.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : ''}
+              </p>
               <p className="t-small text-white/60 mt-1">
                 {new Date().toLocaleDateString('en-NG', {
                   weekday: 'short', month: 'short', day: 'numeric'
@@ -251,7 +257,9 @@ export default function StockBoard() {
         ) : (
           <div className="space-y-3">
             {stockItems.map((item) => {
-              const status = getStockStatus(item.remaining_qty, item.opening_qty)
+              const remaining = remainingQty(item)
+              const sold = soldQty(item)
+              const status = getStockStatus(remaining, item.opening_qty)
               return (
                 <div key={item.id} className="card">
                   {/* Item header */}
@@ -265,9 +273,9 @@ export default function StockBoard() {
                   {/* Stats row */}
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     {[
-                      { label: 'Opening',   value: item.opening_qty,   highlight: false },
-                      { label: 'Sold',      value: item.sold_qty,      highlight: false },
-                      { label: 'Remaining', value: item.remaining_qty, highlight: true  },
+                      { label: 'Opening',   value: item.opening_qty, highlight: false },
+                      { label: 'Sold',      value: sold,              highlight: false },
+                      { label: 'Remaining', value: remaining,         highlight: true  },
                     ].map(({ label, value, highlight }) => (
                       <div key={label} className="bg-bg-subtle rounded-[10px] py-2.5 text-center">
                         <p className="t-small text-text-muted mb-0.5">{label}</p>

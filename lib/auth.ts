@@ -7,7 +7,6 @@ export type UserSession = {
   email: string
   first_name: string
   surname: string
-  role: string
   status: string
 }
 
@@ -15,7 +14,7 @@ export async function signIn(email: string, password: string): Promise<{ success
   try {
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, password_hash, first_name, surname, role, status')
+      .select('id, email, password_hash, first_name, surname, status')
       .eq('email', email.toLowerCase())
       .limit(1)
 
@@ -48,7 +47,6 @@ export async function signIn(email: string, password: string): Promise<{ success
       email: user.email,
       first_name: user.first_name,
       surname: user.surname,
-      role: user.role,
       status: user.status,
     }
 

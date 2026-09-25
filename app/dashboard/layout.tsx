@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, ShoppingBag, Clock,
-  Package, Receipt, Users,
-  LogOut, Menu, MessageCircle, X
+  LayoutDashboard, ShoppingBag, Package, MessageCircle,
+  Utensils, Users, Receipt, FileText, User,
+  LogOut, Menu, X
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
 
@@ -22,17 +22,19 @@ export default function DashboardLayout({
   const isChatPage = pathname === '/dashboard/chat' || pathname === '/dashboard/chat/' || pathname?.includes('/chat')
 
   const bottomNav = [
-    { name: 'Home', icon: LayoutDashboard, path: '/dashboard' },
-    { name: 'Orders', icon: ShoppingBag, path: '/dashboard/orders' },
-    { name: 'Chat', icon: MessageCircle, path: '/dashboard/chat' },
+    { name: 'Home',   icon: LayoutDashboard, path: '/dashboard' },
+    { name: 'Orders', icon: ShoppingBag,     path: '/dashboard/orders' },
+    { name: 'Stock',  icon: Package,         path: '/dashboard/stock' },
+    { name: 'Chat',   icon: MessageCircle,   path: '/dashboard/chat' },
   ]
 
   const drawerItems = [
-    { name: 'Stock Board', icon: Package, path: '/dashboard/stock' },
-    { name: 'Expenses', icon: Receipt, path: '/dashboard/expenses' },
-    { name: 'Activities', icon: Clock, path: '/dashboard/shift-activities' },
-    { name: 'Profile', icon: Users, path: '/dashboard/profile' },
-    { name: 'Order History', icon: Receipt, path: '/dashboard/order-history' },
+    { name: 'Menu Items',    icon: Utensils, path: '/dashboard/menu' },
+    { name: 'Staff',         icon: Users,    path: '/dashboard/staff' },
+    { name: 'Expenses',      icon: Receipt,  path: '/dashboard/expenses' },
+    { name: 'Reports',       icon: FileText, path: '/dashboard/reports' },
+    { name: 'Order History', icon: Receipt,  path: '/dashboard/order-history' },
+    { name: 'Profile',       icon: User,     path: '/dashboard/profile' },
   ]
 
   const allItems = [...bottomNav, ...drawerItems]
@@ -41,7 +43,7 @@ export default function DashboardLayout({
     if (pathname === '/dashboard') return null
     if (isChatPage) return null
     const item = allItems.find(i => i.path === pathname)
-    return item?.name || 'Staff'
+    return item?.name || 'Uptimyzas Kitchen'
   }
 
   const pageTitle = getPageTitle()
@@ -83,10 +85,7 @@ export default function DashboardLayout({
             <div className="w-9" />
           </>
         ) : (
-          <>
-            <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
-            <span className="t-small text-text-muted uppercase tracking-widest">Staff</span>
-          </>
+          <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
         )}
       </div>
 
@@ -143,7 +142,7 @@ export default function DashboardLayout({
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-8 pb-1 pt-2 relative transition-colors ${
+              className={`flex flex-col items-center gap-1 min-h-0 min-w-0 flex-1 pb-1 pt-2 relative transition-colors ${
                 isActive ? 'text-primary' : 'text-text-muted'
               }`}
             >
@@ -158,7 +157,7 @@ export default function DashboardLayout({
 
         <button
           onClick={() => setMenuOpen(true)}
-          className={`flex flex-col items-center gap-1 min-h-0 min-w-0 px-8 pb-1 pt-2 relative transition-colors ${
+          className={`flex flex-col items-center gap-1 min-h-0 min-w-0 flex-1 pb-1 pt-2 relative transition-colors ${
             drawerItems.some(i => i.path === pathname) ? 'text-primary' : 'text-text-muted'
           }`}
         >
@@ -194,17 +193,17 @@ export default function DashboardLayout({
           </button>
         </div>
 
-        <div className="px-4 py-4 grid grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto">
+        <div className="px-4 py-4 grid grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto pb-safe">
           {drawerItems.map(({ name, icon: Icon, path }) => {
             const isActive = pathname === path
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`flex flex-col items-center gap-2 py-4 rounded-[14px] transition-colors min-h-0 ${
+                className={`flex flex-col items-center gap-2 py-4 rounded-[14px] transition-colors min-h-0 drawer-item ${
                   isActive
                     ? 'bg-primary/10 text-primary'
-                    : 'bg-bg-subtle text-text-secondary hover:bg-border'
+                    : 'bg-bg-subtle text-text-secondary'
                 }`}
               >
                 <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />

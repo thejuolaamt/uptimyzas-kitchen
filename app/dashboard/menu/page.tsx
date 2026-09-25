@@ -30,8 +30,6 @@ export default function MenuManagement() {
     const session = getSession()
     if (!session) {
       router.push('/auth/login')
-    } else if (session.role !== 'admin') {
-      router.push('/dashboard')
     } else {
       fetchMenuItems()
     }
@@ -119,14 +117,58 @@ export default function MenuManagement() {
   return (
     <div className="p-4 sm:p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="t-h1 text-text-primary">Menu Management</h1>
+        <h1 className="t-h1 text-text-primary">Menu Items</h1>
         <button onClick={() => openModal()} className="btn-primary flex items-center gap-2 whitespace-nowrap">
           <Plus size={16} /> Add Item
         </button>
       </div>
 
-      {/* Table with horizontal scroll - FIXED */}
-      <div className="bg-white rounded-[10px] border border-border overflow-hidden">
+      {/* Mobile: card list. Desktop (sm+): table */}
+      <div className="sm:hidden space-y-3">
+        {items.length === 0 ? (
+          <div className="card text-center py-10">
+            <p className="t-body text-text-muted">No menu items yet. Tap "Add Item" to create one.</p>
+          </div>
+        ) : (
+          items.map((item) => (
+            <div key={item.id} className="card">
+              <div className="flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="t-body text-text-primary font-medium truncate">{item.name}</p>
+                  <p className="t-small text-text-secondary">{item.category} · {item.unit}</p>
+                  <p className="t-mono text-primary font-medium mt-1">₦{item.price.toLocaleString()}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0 ml-3">
+                  <button
+                    onClick={() => toggleAvailability(item)}
+                    className={`px-2 py-1 rounded-full t-small font-medium ${
+                      item.available ? 'bg-[#2E7D32]/10 text-[#2E7D32]' : 'bg-danger/10 text-danger'
+                    }`}
+                  >
+                    {item.available ? 'Available' : 'Unavailable'}
+                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => openModal(item)}
+                      className="text-[#1565C0] min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#1565C0]/10"
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(item.id)}
+                      className="text-danger min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-danger/10"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden sm:block bg-white rounded-[10px] border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <div className="min-w-[640px]">
             <table className="w-full">
@@ -163,14 +205,14 @@ export default function MenuManagement() {
                        </td>
                       <td className="p-3 text-center whitespace-nowrap">
                         <div className="flex justify-center gap-2">
-                          <button 
-                            onClick={() => openModal(item)} 
+                          <button
+                            onClick={() => openModal(item)}
                             className="text-[#1565C0] min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#1565C0]/10 transition-colors"
                           >
                             <Edit size={16} />
                           </button>
-                          <button 
-                            onClick={() => setDeleteConfirm(item.id)} 
+                          <button
+                            onClick={() => setDeleteConfirm(item.id)}
                             className="text-danger min-h-0 min-w-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-danger/10 transition-colors"
                           >
                             <Trash2 size={16} />
@@ -186,10 +228,9 @@ export default function MenuManagement() {
         </div>
       </div>
 
-      {/* Add/Edit modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-t-[20px] p-5">
+          <div className="bg-white w-full max-w-md rounded-t-[20px] p-5 modal-content">
             <div className="w-10 h-1 rounded-full bg-border mx-auto mb-5" />
             <div className="flex justify-between items-center mb-4">
               <p className="t-h2 text-text-primary">{editingItem ? 'Edit Item' : 'Add New Item'}</p>
@@ -225,7 +266,6 @@ export default function MenuManagement() {
         </div>
       )}
 
-      {/* Delete confirm modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-md rounded-t-[20px] p-5">

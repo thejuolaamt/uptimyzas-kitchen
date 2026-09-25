@@ -22,11 +22,7 @@ export default function LoginPage() {
     const result = await signIn(email, password)
 
     if (result.success && result.session) {
-      if (result.session.role === 'admin') {
-        router.push('/admin')
-      } else {
-        router.push('/dashboard')
-      }
+      router.push('/dashboard')
     } else {
       setError(result.error || 'Login failed')
     }

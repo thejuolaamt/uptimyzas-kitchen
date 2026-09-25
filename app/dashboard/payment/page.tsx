@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import { Banknote, Smartphone, ArrowLeftRight } from 'lucide-react'
 
@@ -28,13 +29,12 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [session, setSession] = useState<any>(null)
+  const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'split'>('cash')
   const [cashAmount, setCashAmount] = useState('')
   const [transferAmount, setTransferAmount] = useState('')
   const [amountReceived, setAmountReceived] = useState('')
-  const activeShiftRef = useRef<any>(null)
-  const [activeShift, setActiveShift] = useState<any>(null)
 
   const navigate = useCallback((path: string) => {
     if (isRouterReady) {
@@ -51,62 +51,65 @@ export default function PaymentPage() {
   useEffect(() => {
     if (!isRouterReady) return
 
-    const userSession = getSession()
-    if (!userSession) {
-      navigate('/auth/login')
-      return
-    }
-    setSession(userSession)
+    const init = async () => {
+      const userSession = getSession()
+      if (!userSession) {
+        navigate('/auth/login')
+        return
+      }
+      setSession(userSession)
 
-    const saved = localStorage.getItem('current_order_cart')
-    if (!saved) {
-      navigate('/dashboard/orders')
-      return
+      const saved = localStorage.getItem('current_order_cart')
+      if (!saved) {
+        navigate('/dashboard/orders')
+        return
+      }
+      setCart(JSON.parse(saved))
+
+      // Payment can only happen against the currently open shift. If none
+      // is open (shouldn't normally happen if you came from the orders
+      // page, but covers edge cases like the shift closing mid-checkout),
+      // bounce back rather than letting checkout proceed with no shift.
+      try {
+        const shift = await getActiveShift()
+        if (!shift) {
+          toast('No shift is currently open', 'warning')
+          navigate('/dashboard/orders')
+          return
+        }
+        setActiveShift(shift)
+      } catch (err: any) {
+        console.error(err)
+        toast('Could not verify the active shift', 'error')
+        navigate('/dashboard/orders')
+        return
+      }
+
+      setLoading(false)
     }
-    setCart(JSON.parse(saved))
-    initShift()
+
+    init()
   }, [isRouterReady, navigate])
 
-  const initShift = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    const { data, error } = await supabase
-      .from('shift_sessions')
-      .select('*, shifts(*)')
-      .eq('shift_date', today)
-      .eq('status', 'open')
-      .maybeSingle()
-
-    if (!data || error) {
-      toast('No active shift. Please open a shift first.', 'warning')
-      navigate('/dashboard')
-      return
-    }
-
-    activeShiftRef.current = data
-    setActiveShift(data)
-    setLoading(false)
-  }
-
-  const checkStockAvailability = async (shiftId: string) => {
-    const today = new Date().toISOString().split('T')[0]
+  const checkStockAvailability = async () => {
+    if (!activeShift) return false
     const cartItems = JSON.parse(localStorage.getItem('current_order_cart') || '[]')
 
     for (const item of cartItems) {
       const { data, error } = await supabase
         .from('shift_stock')
-        .select('remaining_qty')
-        .eq('shift_date', today)
-        .eq('shift_id', shiftId)
+        .select('quantity')
+        .eq('shift_id', activeShift.id)
         .eq('item_id', item.id)
         .maybeSingle()
 
       if (error || !data) {
-        toast(`Stock not found for ${item.name}. Make sure shift was opened correctly.`, 'error')
+        toast(`Stock not found for ${item.name}.`, 'error')
         return false
       }
-      if (data.remaining_qty < item.quantity) {
+      if (data.quantity < item.quantity) {
         toast(
-          `${item.name}: only ${data.remaining_qty} ${item.unit}(s) left. You ordered ${item.quantity}.`,
+          `${item.name}: only ${data.quantity} ${item.unit}(s) left. You ordered ${item.quantity}.`,
           'warning'
         )
         return false
@@ -122,8 +125,7 @@ export default function PaymentPage() {
   const splitDiff = total - splitSum
 
   const handleConfirmOrder = async () => {
-    const shift = activeShiftRef.current
-    if (!shift) {
+    if (!activeShift) {
       toast('No active shift found', 'error')
       return
     }
@@ -140,11 +142,10 @@ export default function PaymentPage() {
       return
     }
 
-    const stockOk = await checkStockAvailability(shift.shift_id)
+    const stockOk = await checkStockAvailability()
     if (!stockOk) return
 
     setProcessing(true)
-    const today = new Date().toISOString().split('T')[0]
 
     let cashAmt     = 0
     let transferAmt = 0
@@ -168,12 +169,11 @@ export default function PaymentPage() {
       subtotal:   i.price * i.quantity,
     }))
 
-    // Insert the order first
+    // Insert the order, tagged to the active shift
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert({
-        shift_date:      today,
-        shift_id:        shift.shift_id,
+        shift_id:        activeShift.id,
         staff_id:        session.id,
         items_json:      itemsJson,
         subtotal:        total,
@@ -192,31 +192,13 @@ export default function PaymentPage() {
       return
     }
 
-    // Log the activity
-    await supabase.from('shift_activities').insert({
-      shift_date:     today,
-      shift_id:       shift.shift_id,
-      staff_id:       session.id,
-      staff_name:     `${session.first_name} ${session.surname}`,
-      staff_role:     session.role,
-      action_type:    'TAKE_ORDER',
-      action_details: {
-        order_id:       orderData.id,
-        total,
-        items:          cart.length,
-        payment_method: paymentMethod,
-      },
-    })
-
-    // ✨ FIXED: Atomic stock updates using RPC function
+    // Atomic stock decrement per item, scoped to this shift
     for (const item of cart) {
       try {
-        // Get the shift_stock record ID
         const { data: stockRecord, error: fetchError } = await supabase
           .from('shift_stock')
-          .select('id, remaining_qty, sold_qty')
-          .eq('shift_date', today)
-          .eq('shift_id', shift.shift_id)
+          .select('id, quantity')
+          .eq('shift_id', activeShift.id)
           .eq('item_id', item.id)
           .maybeSingle()
 
@@ -226,7 +208,6 @@ export default function PaymentPage() {
           return
         }
 
-        // Atomic decrement using RPC function
         const { data: updatedStock, error: stockError } = await supabase
           .rpc('decrement_stock', {
             p_stock_id: stockRecord.id,
@@ -241,7 +222,7 @@ export default function PaymentPage() {
         }
 
         if (!updatedStock || updatedStock.length === 0) {
-          toast(`Insufficient stock for ${item.name} (only ${stockRecord.remaining_qty} left)`, 'error')
+          toast(`Insufficient stock for ${item.name} (only ${stockRecord.quantity} left)`, 'error')
           setProcessing(false)
           return
         }
@@ -288,7 +269,7 @@ export default function PaymentPage() {
             ₦{total.toLocaleString()}
           </p>
           <p className="t-small text-white/50 mt-2">
-            {cart.length} item{cart.length !== 1 ? 's' : ''} · {activeShift?.shifts?.name} Shift
+            {cart.length} item{cart.length !== 1 ? 's' : ''}
           </p>
         </div>
 

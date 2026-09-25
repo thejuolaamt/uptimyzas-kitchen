@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
-import { Check, X, Eye, UserCheck, UserX, Users } from 'lucide-react'
+import { Check, X, Eye, Users } from 'lucide-react'
 
 type StaffMember = {
   id: string
@@ -14,7 +14,6 @@ type StaffMember = {
   surname: string
   phone: string
   additional_phone: string | null
-  role: string
   status: string
   is_student: boolean
   state: string | null
@@ -25,25 +24,19 @@ type StaffMember = {
   declined_at: string | null
 }
 
-// Staff Management Skeleton Component
 function StaffManagementSkeleton() {
   return (
     <div className="min-h-screen bg-bg-subtle">
       <div className="p-4 sm:p-6">
-        {/* Header skeleton */}
         <div className="flex justify-between items-center mb-6">
           <div className="skeleton h-8 w-48 rounded" />
           <div className="skeleton h-6 w-24 rounded-full" />
         </div>
-
-        {/* Filter tabs skeleton */}
         <div className="flex gap-1 mb-6 border-b border-border">
           {['all', 'pending', 'active', 'declined'].map((tab, i) => (
             <div key={i} className="skeleton h-10 w-20 rounded-t-lg" />
           ))}
         </div>
-
-        {/* Staff list skeleton */}
         <div className="space-y-3">
           {[1, 2, 3, 4, 5].map(i => (
             <div key={i} className="card">
@@ -52,14 +45,12 @@ function StaffManagementSkeleton() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="skeleton h-5 w-32 rounded" />
                     <div className="skeleton h-5 w-16 rounded-full" />
-                    <div className="skeleton h-5 w-12 rounded-full" />
                   </div>
                   <div className="skeleton h-4 w-48 rounded" />
                   <div className="skeleton h-4 w-32 rounded" />
                   <div className="skeleton h-3 w-24 rounded mt-1" />
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  <div className="skeleton w-9 h-9 rounded-full" />
                   <div className="skeleton w-9 h-9 rounded-full" />
                   <div className="skeleton w-9 h-9 rounded-full" />
                   <div className="skeleton w-9 h-9 rounded-full" />
@@ -77,7 +68,6 @@ export default function StaffManagement() {
   const router = useRouter()
   const toast = useToast()
   const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
   const [archiveConfirm, setArchiveConfirm] = useState<string | null>(null)
@@ -87,10 +77,7 @@ export default function StaffManagement() {
     const userSession = getSession()
     if (!userSession) {
       router.push('/auth/login')
-    } else if (userSession.role !== 'admin') {
-      router.push('/dashboard')
     } else {
-      setSession(userSession)
       fetchStaff()
     }
   }, [router])
@@ -136,21 +123,6 @@ export default function StaffManagement() {
     }
   }
 
-  const promoteToAdmin = async (staffId: string, currentRole: string) => {
-    const newRole = currentRole === 'admin' ? 'staff' : 'admin'
-    const { error } = await supabase
-      .from('users')
-      .update({ role: newRole })
-      .eq('id', staffId)
-
-    if (error) {
-      toast('Error updating role: ' + error.message, 'error')
-    } else {
-      toast(`Role updated to ${newRole}`, 'success')
-      fetchStaff()
-    }
-  }
-
   const archiveStaff = async (staffId: string) => {
     const { error } = await supabase
       .from('users')
@@ -185,7 +157,6 @@ export default function StaffManagement() {
     )
   }
 
-  // Show skeleton while loading
   if (loading) {
     return <StaffManagementSkeleton />
   }
@@ -194,9 +165,8 @@ export default function StaffManagement() {
     <div className="min-h-screen bg-bg-subtle">
       <div className="p-4 sm:p-6">
 
-        {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="t-h1 text-text-primary">Staff Management</h1>
+          <h1 className="t-h1 text-text-primary">Staff</h1>
           {getPendingCount() > 0 && (
             <span className="bg-primary text-white px-3 py-1 rounded-full t-small font-medium">
               {getPendingCount()} Pending
@@ -204,14 +174,13 @@ export default function StaffManagement() {
           )}
         </div>
 
-        {/* Filter tabs */}
         <div className="flex gap-1 mb-6 border-b border-border overflow-x-auto scrollbar-none">
           <div className="flex min-w-max">
             {(['all', 'pending', 'active', 'declined'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setFilter(tab)}
-                className={`px-4 py-2 t-label capitalize transition-colors ${
+                className={`px-4 py-2 t-label capitalize transition-colors filter-tab ${
                   filter === tab
                     ? 'text-primary border-b-2 border-primary'
                     : 'text-text-secondary'
@@ -223,7 +192,6 @@ export default function StaffManagement() {
           </div>
         </div>
 
-        {/* Staff list */}
         <div className="space-y-3">
           {getFilteredStaff().length === 0 ? (
             <div className="card text-center py-10">
@@ -240,9 +208,6 @@ export default function StaffManagement() {
                         {member.first_name} {member.surname}
                       </p>
                       {getStatusBadge(member.status)}
-                      {member.role === 'admin' && (
-                        <span className="bg-primary/10 text-primary px-2 py-1 rounded-full t-small">Admin</span>
-                      )}
                     </div>
                     <p className="t-small text-text-secondary">{member.email}</p>
                     <p className="t-small text-text-secondary">{member.phone}</p>
@@ -273,22 +238,6 @@ export default function StaffManagement() {
                         </button>
                       </>
                     )}
-                    {member.status === 'active' && member.role !== 'admin' && (
-                      <button
-                        onClick={() => promoteToAdmin(member.id, member.role)}
-                        className="bg-[#1565C0]/10 text-[#1565C0] p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
-                      >
-                        <UserCheck size={16} />
-                      </button>
-                    )}
-                    {member.status === 'active' && member.role === 'admin' && session?.id !== member.id && (
-                      <button
-                        onClick={() => promoteToAdmin(member.id, member.role)}
-                        className="bg-[#E65100]/10 text-[#E65100] p-2 rounded-[10px] w-9 h-9 min-h-0 min-w-0 flex items-center justify-center"
-                      >
-                        <UserX size={16} />
-                      </button>
-                    )}
                     {member.status === 'active' && (
                       <button
                         onClick={() => setArchiveConfirm(member.id)}
@@ -305,10 +254,9 @@ export default function StaffManagement() {
         </div>
       </div>
 
-      {/* Staff details modal */}
       {selectedStaff && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-t-[20px] max-h-[85vh] flex flex-col">
+          <div className="bg-white w-full max-w-md rounded-t-[20px] max-h-[85vh] flex flex-col modal-content">
             <div className="px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
               <div className="w-10 h-1 rounded-full bg-border mx-auto mb-4" />
               <div className="flex justify-between items-center">
@@ -316,13 +264,12 @@ export default function StaffManagement() {
                 <button onClick={() => setSelectedStaff(null)} className="text-text-muted min-h-0 min-w-0 w-8 h-8 flex items-center justify-center">✕</button>
               </div>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3 modal-scroll">
               {[
                 ['Full Name', `${selectedStaff.first_name} ${selectedStaff.surname}`],
                 ['Email', selectedStaff.email],
                 ['Phone', selectedStaff.phone],
                 selectedStaff.additional_phone ? ['Additional Phone', selectedStaff.additional_phone] : null,
-                ['Role', selectedStaff.role],
                 ['Student', selectedStaff.is_student ? 'Yes' : 'No'],
                 selectedStaff.state ? ['State', selectedStaff.state] : null,
                 selectedStaff.city ? ['City', selectedStaff.city] : null,
@@ -354,7 +301,6 @@ export default function StaffManagement() {
         </div>
       )}
 
-      {/* Archive confirm modal */}
       {archiveConfirm && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
           <div className="bg-white w-full max-w-md rounded-t-[20px] p-5">
