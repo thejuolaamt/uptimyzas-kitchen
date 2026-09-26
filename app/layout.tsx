@@ -1,15 +1,9 @@
 import type { Metadata } from 'next'
-import { Geist } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
 import './globals.css'
 import PWAInstall from './pwa-install/page'
 import { ToastProvider } from '@/lib/toast'
 
-const geist = Geist({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700', '800', '900'],
-  variable: '--font-geist',
-  display: 'swap',
-})
 
 export const metadata: Metadata = {
   title: 'Uptimyzas Kitchen',
@@ -40,7 +34,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body className={`${geist.variable} font-body`}>
+      <body className={`${GeistSans.variable} font-body`}>
         <ToastProvider>
           {children}
           <PWAInstall />

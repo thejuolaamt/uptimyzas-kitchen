@@ -27,19 +27,16 @@ export async function getActiveShift(): Promise<ActiveShift | null> {
  * inserts a row the first time a user joins a particular shift.
  */
 export async function ensureJoined(shiftId: string, userId: string): Promise<void> {
-  const { data: existing, error: checkError } = await supabase
+  // upsert + ignoreDuplicates lets Postgres handle "insert, but do nothing
+  // if it's already there" in one atomic step — safe even if this runs
+  // twice at once (e.g. React Strict Mode's double-invoked effects in
+  // dev), unlike a separate check-then-insert which can race.
+  const { error } = await supabase
     .from('shift_assignments')
-    .select('id')
-    .eq('shift_id', shiftId)
-    .eq('user_id', userId)
-    .maybeSingle()
+    .upsert(
+      { shift_id: shiftId, user_id: userId },
+      { onConflict: 'shift_id,user_id', ignoreDuplicates: true }
+    )
 
-  if (checkError) throw new Error(checkError.message)
-  if (existing) return
-
-  const { error: insertError } = await supabase
-    .from('shift_assignments')
-    .insert({ shift_id: shiftId, user_id: userId })
-
-  if (insertError) throw new Error(insertError.message)
+  if (error) throw new Error(error.message)
 }

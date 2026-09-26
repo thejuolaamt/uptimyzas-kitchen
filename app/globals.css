@@ -30,10 +30,9 @@
   --radius-full: 9999px;
 
   /* Fonts */
-  --font-display: var(--font-geist), system-ui, sans-serif;
-  --font-heading: var(--font-geist), system-ui, sans-serif;
-  --font-body: var(--font-geist), system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: var(--font-geist-sans), system-ui, sans-serif;
+--font-heading: var(--font-geist-sans), system-ui, sans-serif;
+--font-body: var(--font-geist-sans), system-ui, sans-serif;
 
   /* ── TYPE SCALE ─────────────────────────────────
      Single source of truth.
@@ -397,18 +396,6 @@ textarea {
 .progress-fill-medium { background-color: var(--color-warning); }
 .progress-fill-low    { background-color: var(--color-danger);  }
 
-/* ── UTILITIES ──────────────────────────────────── */
-.text-primary        { color: var(--color-primary); }
-.bg-primary          { background-color: var(--color-primary); }
-.bg-primary-light    { background-color: var(--color-primary-light); }
-.text-text-primary   { color: var(--color-text-primary); }
-.text-text-secondary { color: var(--color-text-secondary); }
-.text-text-muted     { color: var(--color-text-muted); }
-.text-success        { color: var(--color-success); }
-.text-danger         { color: var(--color-danger); }
-.text-warning        { color: var(--color-warning); }
-.border-border       { border-color: var(--color-border); }
-.bg-bg-subtle        { background-color: var(--color-bg-subtle); }
 
 /* ── SCROLLBAR ──────────────────────────────────── */
 ::-webkit-scrollbar {
