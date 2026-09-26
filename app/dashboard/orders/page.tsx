@@ -57,6 +57,9 @@ export default function OrdersPage() {
   const [addStockQty, setAddStockQty] = useState('')
   const [addingStock, setAddingStock] = useState(false)
 
+  // Tap-confirmation animation — briefly "pops" the tapped item
+  const [justAddedId, setJustAddedId] = useState<string | null>(null)
+
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
@@ -74,19 +77,22 @@ export default function OrdersPage() {
 
       const userSession = getSession()
 
-      // Get menu items
-      const { data: menu, error: menuError } = await supabase
-        .from('menu_items')
-        .select('*')
-        .eq('available', true)
-        .order('category')
+      // Menu items and the active-shift check don't depend on each other —
+      // run them together instead of one after another.
+      const [menuResult, shift] = await Promise.all([
+        supabase
+          .from('menu_items')
+          .select('*')
+          .eq('available', true)
+          .order('category'),
+        getActiveShift(),
+      ])
 
+      const { data: menu, error: menuError } = menuResult
       if (menuError) throw new Error(menuError.message)
       setMenuItems(menu || [])
       setCategories(['All', ...new Set(menu?.map(i => i.category) || [])])
 
-      // Find the currently open shift
-      const shift = await getActiveShift()
       if (!shift) {
         setNoShift(true)
         setLoading(false)
@@ -94,12 +100,16 @@ export default function OrdersPage() {
       }
       setActiveShift(shift)
 
-      // Record this user as part of the shift (no-op if already joined)
-      if (userSession) {
+      // Only check/record shift membership once per shift per session —
+      // this page gets visited constantly while taking orders, and after
+      // the first successful join there's nothing new to write.
+      const joinFlagKey = `joined_shift_${shift.id}`
+      if (userSession && !sessionStorage.getItem(joinFlagKey)) {
         await ensureJoined(shift.id, userSession.id)
+        sessionStorage.setItem(joinFlagKey, '1')
       }
 
-      // Get current stock for THIS shift
+      // Get current stock for this shift
       const { data: stock, error: stockError } = await supabase
         .from('shift_stock')
         .select('*')
@@ -136,12 +146,19 @@ export default function OrdersPage() {
     return stock - inCart
   }
 
+  const pulseItem = (itemId: string) => {
+    setJustAddedId(itemId)
+    setTimeout(() => setJustAddedId(prev => (prev === itemId ? null : prev)), 180)
+  }
+
   const addToCart = (item: MenuItem) => {
     const remaining = getRemainingStock(item.id)
     if (remaining <= 0) {
       toast(`${item.name} is out of stock`, 'warning')
       return
     }
+
+    pulseItem(item.id)
 
     const existing = cart.find(c => c.id === item.id)
     if (existing) {
@@ -261,9 +278,7 @@ export default function OrdersPage() {
     )
   }
 
-  // No shift is currently open — the dedicated "start/join shift" screen
-  // is the next piece to build; for now this stops the page from trying
-  // to sell against stock that doesn't exist yet.
+  // No shift is currently open
   if (noShift) {
     return (
       <div className="min-h-screen bg-bg-subtle flex items-center justify-center p-4">
@@ -292,7 +307,7 @@ export default function OrdersPage() {
           <h2 className="text-lg font-semibold mb-2">Unable to load orders</h2>
           <p className="text-gray-500 mb-4">{error}</p>
           <button
-            onClick={() => router.push('/dashboard/shift')}
+            onClick={() => router.push('/dashboard')}
             className="bg-primary text-white px-6 py-2 rounded-lg w-full"
           >
             Go to Dashboard
@@ -334,7 +349,7 @@ export default function OrdersPage() {
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-60 overflow-y-auto animate-[fadeIn_0.15s_ease-out]">
                 {categories.map(cat => (
                   <button
                     key={cat}
@@ -363,13 +378,16 @@ export default function OrdersPage() {
           const remaining = getRemainingStock(item.id)
           const outOfStock = remaining <= 0
           const inCart = cart.find(c => c.id === item.id)
+          const justAdded = justAddedId === item.id
 
           return (
             <button
               key={item.id}
               onClick={() => addToCart(item)}
               disabled={outOfStock}
-              className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all active:scale-95 menu-item ${
+              className={`bg-white rounded-xl p-4 text-left shadow-sm border transition-all duration-150 active:scale-95 menu-item ${
+                justAdded ? 'scale-105 border-primary shadow-md' : ''
+              } ${
                 outOfStock ? 'opacity-50 cursor-not-allowed' : inCart ? 'border-primary shadow-md' : 'border-gray-200'
               }`}
             >
@@ -389,21 +407,23 @@ export default function OrdersPage() {
         })}
       </div>
 
-      {/* Cart Bar */}
-      {cartCount > 0 && (
-        <div className="fixed bottom-[68px] left-0 right-0 p-4 bg-white border-t shadow-lg z-30">
-          <button
-            onClick={() => setShowCart(true)}
-            className="w-full bg-primary text-white py-4 rounded-xl flex justify-between items-center px-4 active:scale-98 transition-transform"
-          >
-            <span className="flex items-center gap-2">
-              <ShoppingCart size={20} />
-              <span className="font-medium">{cartCount} item(s)</span>
-            </span>
-            <span className="text-xl font-bold">₦{cartTotal.toLocaleString()}</span>
-          </button>
-        </div>
-      )}
+      {/* Cart Bar — always mounted, slides up/down instead of popping in */}
+      <div
+        className={`fixed bottom-[68px] left-0 right-0 p-4 bg-white border-t shadow-lg z-30 transition-transform duration-200 ease-out ${
+          cartCount > 0 ? 'translate-y-0' : 'translate-y-full pointer-events-none'
+        }`}
+      >
+        <button
+          onClick={() => setShowCart(true)}
+          className="w-full bg-primary text-white py-4 rounded-xl flex justify-between items-center px-4 active:scale-98 transition-transform"
+        >
+          <span className="flex items-center gap-2">
+            <ShoppingCart size={20} />
+            <span className="font-medium">{cartCount} item(s)</span>
+          </span>
+          <span className="text-xl font-bold">₦{cartTotal.toLocaleString()}</span>
+        </button>
+      </div>
 
       {/* Cart Modal */}
       {showCart && (

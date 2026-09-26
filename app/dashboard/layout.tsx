@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, ShoppingBag, Package, MessageCircle,
-  Utensils, Users, Receipt, FileText, User,
+  LayoutDashboard, ShoppingBag, Package, Clock,
+  Utensils, Receipt, History,
   LogOut, Menu, X
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
+import { getActiveShift } from '@/lib/shift'
 
 export default function DashboardLayout({
   children,
@@ -18,53 +19,55 @@ export default function DashboardLayout({
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Check if we're on chat page - hide navigation
-  const isChatPage = pathname === '/dashboard/chat' || pathname === '/dashboard/chat/' || pathname?.includes('/chat')
-
   const bottomNav = [
     { name: 'Home',   icon: LayoutDashboard, path: '/dashboard' },
     { name: 'Orders', icon: ShoppingBag,     path: '/dashboard/orders' },
     { name: 'Stock',  icon: Package,         path: '/dashboard/stock' },
-    { name: 'Chat',   icon: MessageCircle,   path: '/dashboard/chat' },
+    { name: 'Shift',  icon: Clock,           path: '/dashboard/shift' },
   ]
 
   const drawerItems = [
     { name: 'Menu Items',    icon: Utensils, path: '/dashboard/menu' },
-    { name: 'Staff',         icon: Users,    path: '/dashboard/staff' },
     { name: 'Expenses',      icon: Receipt,  path: '/dashboard/expenses' },
-    { name: 'Reports',       icon: FileText, path: '/dashboard/reports' },
     { name: 'Order History', icon: Receipt,  path: '/dashboard/order-history' },
-    { name: 'Profile',       icon: User,     path: '/dashboard/profile' },
+    { name: 'Shift History', icon: History,  path: '/dashboard/shifts' },
   ]
 
   const allItems = [...bottomNav, ...drawerItems]
 
   const getPageTitle = () => {
     if (pathname === '/dashboard') return null
-    if (isChatPage) return null
     const item = allItems.find(i => i.path === pathname)
     return item?.name || 'Uptimyzas Kitchen'
   }
 
   const pageTitle = getPageTitle()
 
+  const isShiftPath = (path: string) =>
+    path === '/dashboard/shift' || path === '/dashboard/shift/close'
+
   const navigate = (path: string) => {
     setMenuOpen(false)
     router.push(path)
   }
 
+  // The Shift tab routes smartly: straight to Close Shift if one's already
+  // open, otherwise to Start Shift — same check the dashboard button uses,
+  // just run on tap instead of on every page load.
+  const handleShiftNav = async () => {
+    setMenuOpen(false)
+    try {
+      const shift = await getActiveShift()
+      router.push(shift ? '/dashboard/shift/close' : '/dashboard/shift')
+    } catch (err) {
+      console.error(err)
+      router.push('/dashboard/shift')
+    }
+  }
+
   const handleLogout = () => {
     clearSession()
     router.push('/auth/login')
-  }
-
-  // For chat page - render without any navigation (full screen)
-  if (isChatPage) {
-    return (
-      <div className="min-h-screen w-full">
-        {children}
-      </div>
-    )
   }
 
   return (
@@ -95,11 +98,11 @@ export default function DashboardLayout({
           <div className="flex flex-col h-full">
             <div className="flex-1 px-3 py-4 space-y-0.5">
               {allItems.map(({ name, icon: Icon, path }) => {
-                const isActive = pathname === path
+                const isActive = isShiftPath(path) ? isShiftPath(pathname || '') : pathname === path
                 return (
                   <button
                     key={path}
-                    onClick={() => navigate(path)}
+                    onClick={() => path === '/dashboard/shift' ? handleShiftNav() : navigate(path)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] transition-colors min-h-0 ${
                       isActive
                         ? 'bg-primary/10 text-primary'
@@ -137,11 +140,11 @@ export default function DashboardLayout({
       {/* Mobile bottom nav */}
       <div className="md:hidden bottom-nav fixed bottom-0 left-0 right-0 z-20 bg-white">
         {bottomNav.map(({ name, icon: Icon, path }) => {
-          const isActive = pathname === path
+          const isActive = isShiftPath(path) ? isShiftPath(pathname || '') : pathname === path
           return (
             <button
               key={path}
-              onClick={() => navigate(path)}
+              onClick={() => path === '/dashboard/shift' ? handleShiftNav() : navigate(path)}
               className={`flex flex-col items-center gap-1 min-h-0 min-w-0 flex-1 pb-1 pt-2 relative transition-colors ${
                 isActive ? 'text-primary' : 'text-text-muted'
               }`}
