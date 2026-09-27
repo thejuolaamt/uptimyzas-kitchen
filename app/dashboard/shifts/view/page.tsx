@@ -202,33 +202,33 @@ function ShiftDetailContent() {
             .join('\n')
         : 'No discrepancies'
 
-      setSummary(`🧾 *Uptimyzas Kitchen — Shift Report*
-📅 ${dateStr}
-🕐 ${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
-👥 *Staff:* ${staffNames.join(', ')}
+      setSummary(`*Uptimyzas Kitchen — Shift Report*
+${dateStr}
+${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
+Staff: ${staffNames.join(', ')}
 
-🍲 *Sold (Qty)*
+*Sold (Qty)*
 ${soldQtyLines}
-(${totalItemsSold} items · ${orderCount} orders)
+${totalItemsSold} items · ${orderCount} orders
 
-🍲 *Sold (₦)*
+*Sold (₦)*
 ${soldAmountLines}
 
-💰 *Revenue*
+*Revenue*
 Cash: ${revenueCash.toLocaleString()}
 Transfer: ${revenueTransfer.toLocaleString()}
 Total: ${revenueTotal.toLocaleString()}
 
-📤 *Expenses (from cash)*
+*Expenses (from cash)*
 ${expenseLines}
 Total: ${expenseTotal.toLocaleString()}
 
-💵 *Cash after expenses:* ${cashAfterExpenses.toLocaleString()}
+Cash after expenses: ${cashAfterExpenses.toLocaleString()}
 
-📦 *Stock Discrepancies*
+*Stock Discrepancies*
 ${discrepancyLines}
 
-🧮 *Net:* ${net.toLocaleString()}`)
+*Net:* ${net.toLocaleString()}`)
 
       setLoading(false)
 

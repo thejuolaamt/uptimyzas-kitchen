@@ -192,33 +192,33 @@ export default function ShiftClosePage() {
           .join('\n')
       : 'No discrepancies'
 
-    return `🧾 *Uptimyzas Kitchen — Shift Report*
-📅 ${dateStr}
-🕐 ${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
-👥 *Staff:* ${staffNames.join(', ')}
+    return `*Uptimyzas Kitchen — Shift Report*
+${dateStr}
+${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
+Staff: ${staffNames.join(', ')}
 
-🍲 *Sold (Qty)*
+*Sold (Qty)*
 ${soldQtyLines}
-(${totalItemsSold} items · ${orderCount} orders)
+${totalItemsSold} items · ${orderCount} orders
 
-🍲 *Sold (₦)*
+*Sold (₦)*
 ${soldAmountLines}
 
-💰 *Revenue*
+*Revenue*
 Cash: ${revenueCash.toLocaleString()}
 Transfer: ${revenueTransfer.toLocaleString()}
 Total: ${revenueTotal.toLocaleString()}
 
-📤 *Expenses (from cash)*
+*Expenses (from cash)*
 ${expenseLines}
 Total: ${expenseTotal.toLocaleString()}
 
-💵 *Cash after expenses:* ${cashAfterExpenses.toLocaleString()}
+Cash after expenses: ${cashAfterExpenses.toLocaleString()}
 
-📦 *Stock Discrepancies*
+*Stock Discrepancies*
 ${discrepancyLines}
 
-🧮 *Net:* ${net.toLocaleString()}`
+*Net:* ${net.toLocaleString()}`
   }
 
   const handleCloseShift = async () => {
