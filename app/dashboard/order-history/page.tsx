@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import Spinner from '@/components/Spinner'
 import { Search, User, Package } from 'lucide-react'
 
 type Order = {
@@ -85,11 +86,7 @@ export default function OrderHistoryPage() {
   const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (

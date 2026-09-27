@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import Spinner from '@/components/Spinner'
 import { Plus, Trash2, X, Banknote, Smartphone } from 'lucide-react'
 
 type Expense = {
@@ -130,11 +131,7 @@ export default function ExpensesPage() {
   const transferTotal = expenses.filter(e => e.payment_method === 'transfer').reduce((s, e) => s + e.amount, 0)
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (

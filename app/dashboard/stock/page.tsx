@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
+import Spinner from '@/components/Spinner'
 import { Activity } from 'lucide-react'
 
 type StockRow = {
@@ -192,11 +193,7 @@ export default function StockBoard() {
   const criticalCount = stockItems.filter(i => ['Critical', 'No Stock'].includes(getStockStatus(remainingQty(i), i.opening_qty).label)).length
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (

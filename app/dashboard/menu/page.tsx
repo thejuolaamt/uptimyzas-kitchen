@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import Spinner from '@/components/Spinner'
 import { Plus, Edit, Trash2, X } from 'lucide-react'
 
 type MenuItem = {
@@ -107,11 +108,7 @@ export default function MenuManagement() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (

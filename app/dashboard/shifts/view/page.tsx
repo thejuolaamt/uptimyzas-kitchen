@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
+import Spinner from '@/components/Spinner'
 import { Copy, ChevronLeft } from 'lucide-react'
 
 type ShiftStockRow = {
@@ -249,11 +250,7 @@ ${discrepancyLines}
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   if (notFound) {
@@ -321,11 +318,7 @@ ${discrepancyLines}
 
 export default function ShiftDetailPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<Spinner fullScreen />}>
       <ShiftDetailContent />
     </Suspense>
   )

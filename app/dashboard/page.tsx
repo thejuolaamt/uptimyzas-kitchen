@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
+import Spinner from '@/components/Spinner'
 import { Package, Receipt, Users, TrendingUp } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -86,11 +87,7 @@ export default function DashboardPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (
