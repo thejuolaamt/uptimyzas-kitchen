@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
-import { Banknote, Smartphone, ArrowLeftRight } from 'lucide-react'
+import Spinner from '@/components/Spinner'
+import { Banknote, Smartphone, ArrowLeftRight, CheckCircle2 } from 'lucide-react'
 
 type CartItem = {
   id: string
@@ -28,6 +29,7 @@ export default function PaymentPage() {
   const [isRouterReady, setIsRouterReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
+  const [success, setSuccess] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -91,33 +93,6 @@ export default function PaymentPage() {
     init()
   }, [isRouterReady, navigate])
 
-  const checkStockAvailability = async () => {
-    if (!activeShift) return false
-    const cartItems = JSON.parse(localStorage.getItem('current_order_cart') || '[]')
-
-    for (const item of cartItems) {
-      const { data, error } = await supabase
-        .from('shift_stock')
-        .select('quantity')
-        .eq('shift_id', activeShift.id)
-        .eq('item_id', item.id)
-        .maybeSingle()
-
-      if (error || !data) {
-        toast(`Stock not found for ${item.name}.`, 'error')
-        return false
-      }
-      if (data.quantity < item.quantity) {
-        toast(
-          `${item.name}: only ${data.quantity} ${item.unit}(s) left. You ordered ${item.quantity}.`,
-          'warning'
-        )
-        return false
-      }
-    }
-    return true
-  }
-
   const total    = cart.reduce((s, i) => s + i.price * i.quantity, 0)
   const change   = parseFloat(amountReceived) - total
   const splitSum = (parseFloat(cashAmount) || 0) + (parseFloat(transferAmount) || 0)
@@ -142,10 +117,37 @@ export default function PaymentPage() {
       return
     }
 
-    const stockOk = await checkStockAvailability()
-    if (!stockOk) return
-
     setProcessing(true)
+
+    // Single fetch of current stock for every cart item — used both to
+    // validate sufficiency up front and, further down, to know which
+    // rows to decrement. No second query for the same data.
+    const { data: stockRows, error: stockFetchError } = await supabase
+      .from('shift_stock')
+      .select('id, item_id, quantity')
+      .eq('shift_id', activeShift.id)
+      .in('item_id', cart.map(i => i.id))
+
+    if (stockFetchError || !stockRows) {
+      toast('Could not verify stock before completing the order', 'error')
+      setProcessing(false)
+      return
+    }
+
+    const insufficient = cart.filter(item => {
+      const stockRow = stockRows.find(s => s.item_id === item.id)
+      return !stockRow || stockRow.quantity < item.quantity
+    })
+
+    if (insufficient.length > 0) {
+      insufficient.forEach(item => {
+        const stockRow = stockRows.find(s => s.item_id === item.id)
+        const available = stockRow?.quantity ?? 0
+        toast(`${item.name}: only ${available} left`, 'warning')
+      })
+      setProcessing(false)
+      return
+    }
 
     let cashAmt     = 0
     let transferAmt = 0
@@ -192,47 +194,38 @@ export default function PaymentPage() {
       return
     }
 
-    // Atomic stock decrement per item, scoped to this shift
-    for (const item of cart) {
-      try {
-        const { data: stockRecord, error: fetchError } = await supabase
-          .from('shift_stock')
-          .select('id, quantity')
-          .eq('shift_id', activeShift.id)
-          .eq('item_id', item.id)
-          .maybeSingle()
-
-        if (fetchError || !stockRecord) {
-          toast(`Stock record not found for ${item.name}`, 'error')
-          setProcessing(false)
-          return
+    // Decrement every item concurrently — each one updates a different
+    // row, so there's no reason to wait for one before starting the next.
+    // Uses the stockRows already fetched above.
+    const results = await Promise.all(
+      cart.map(async (item) => {
+        const stockRow = stockRows.find(s => s.item_id === item.id)
+        if (!stockRow) {
+          return { item, ok: false, reason: 'Stock record not found' }
         }
 
         const { data: updatedStock, error: stockError } = await supabase
           .rpc('decrement_stock', {
-            p_stock_id: stockRecord.id,
+            p_stock_id: stockRow.id,
             p_quantity: item.quantity
           })
 
         if (stockError) {
           console.error('Stock decrement error:', stockError)
-          toast(`Failed to update stock for ${item.name}: ${stockError.message}`, 'error')
-          setProcessing(false)
-          return
+          return { item, ok: false, reason: stockError.message }
         }
-
         if (!updatedStock || updatedStock.length === 0) {
-          toast(`Insufficient stock for ${item.name} (only ${stockRecord.quantity} left)`, 'error')
-          setProcessing(false)
-          return
+          return { item, ok: false, reason: `Insufficient stock (only ${stockRow.quantity} left)` }
         }
+        return { item, ok: true, reason: '' }
+      })
+    )
 
-      } catch (err) {
-        console.error('Stock update failed:', err)
-        toast(`Failed to update stock for ${item.name}`, 'error')
-        setProcessing(false)
-        return
-      }
+    const failures = results.filter(r => !r.ok)
+    if (failures.length > 0) {
+      failures.forEach(f => toast(`${f.item.name}: ${f.reason}`, 'error'))
+      setProcessing(false)
+      return
     }
 
     localStorage.removeItem('current_order_cart')
@@ -246,16 +239,13 @@ export default function PaymentPage() {
       transferAmount: transferAmt,
     }))
 
-    navigate('/dashboard/receipt')
     setProcessing(false)
+    setSuccess(true)
+    navigate('/dashboard/receipt')
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (
@@ -301,7 +291,7 @@ export default function PaymentPage() {
               <button
                 key={key}
                 onClick={() => setPaymentMethod(key)}
-                className={`flex flex-col items-center gap-1.5 py-4 rounded-[12px] t-small font-medium transition-colors min-h-0 ${
+                className={`flex flex-col items-center gap-1.5 py-4 rounded-[12px] t-small font-medium transition-all active:scale-95 min-h-0 ${
                   paymentMethod === key
                     ? 'bg-primary text-white'
                     : 'bg-bg-subtle text-text-secondary border border-border'
@@ -388,10 +378,18 @@ export default function PaymentPage() {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent pt-8 z-20">
         <button
           onClick={handleConfirmOrder}
-          disabled={processing}
+          disabled={processing || success}
           className="btn-primary w-full shadow-lg"
         >
-          {processing ? 'Processing...' : 'Confirm & Complete Order'}
+          {success ? (
+            <>
+              <CheckCircle2 size={18} /> Order Placed!
+            </>
+          ) : processing ? (
+            <Spinner size="sm" />
+          ) : (
+            'Confirm & Complete Order'
+          )}
         </button>
       </div>
     </div>

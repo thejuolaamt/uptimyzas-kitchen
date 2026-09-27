@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle } from 'lucide-react'
+import Spinner from '@/components/Spinner'
 
 export default function ReceiptPage() {
   const router = useRouter()
   const [order, setOrder] = useState<any>(null)
+  const [iconVisible, setIconVisible] = useState(false)
 
   useEffect(() => {
     const lastOrder = localStorage.getItem('last_order')
@@ -17,12 +19,16 @@ export default function ReceiptPage() {
     }
   }, [router])
 
+  useEffect(() => {
+    if (!order) return
+    // Trigger on the next frame so the scale-in transition actually plays
+    // instead of the icon just appearing at full size immediately.
+    const id = requestAnimationFrame(() => setIconVisible(true))
+    return () => cancelAnimationFrame(id)
+  }, [order])
+
   if (!order) {
-    return (
-      <div className="min-h-screen bg-bg-subtle flex items-center justify-center">
-        <div className="w-7 h-7 border-[3px] border-border border-t-primary rounded-full animate-spin" />
-      </div>
-    )
+    return <Spinner fullScreen />
   }
 
   return (
@@ -31,7 +37,11 @@ export default function ReceiptPage() {
 
         {/* Success icon */}
         <div className="text-center mb-5">
-          <div className="w-16 h-16 rounded-full bg-[#2E7D32]/10 flex items-center justify-center mx-auto mb-3">
+          <div
+            className={`w-16 h-16 rounded-full bg-[#2E7D32]/10 flex items-center justify-center mx-auto mb-3 transition-transform duration-300 ease-out ${
+              iconVisible ? 'scale-100' : 'scale-0'
+            }`}
+          >
             <CheckCircle size={36} className="text-[#2E7D32]" />
           </div>
           <h1 className="t-h1 text-text-primary">Order Confirmed</h1>
