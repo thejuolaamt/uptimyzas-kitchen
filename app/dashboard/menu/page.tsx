@@ -30,7 +30,7 @@ export default function MenuManagement() {
   useEffect(() => {
     const session = getSession()
     if (!session) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
     } else {
       fetchMenuItems()
     }

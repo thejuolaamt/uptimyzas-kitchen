@@ -26,19 +26,30 @@ export default function DashboardLayout({
     { name: 'Shift',  icon: Clock,           path: '/dashboard/shift' },
   ]
 
+  // Expenses lives inside the order-taking page (next to Add Stock) since
+  // it's something you log during an active shift, not a settings-style
+  // page — the drawer is for standing config/history, not shift actions.
   const drawerItems = [
     { name: 'Menu Items',    icon: Utensils, path: '/dashboard/menu' },
-    { name: 'Expenses',      icon: Receipt,  path: '/dashboard/expenses' },
     { name: 'Order History', icon: Receipt,  path: '/dashboard/order-history' },
     { name: 'Shift History', icon: History,  path: '/dashboard/shifts' },
   ]
 
   const allItems = [...bottomNav, ...drawerItems]
 
+  // Pages reachable from inside a flow rather than from nav — still need
+  // a real title in the top bar instead of falling back to the brand name.
+  const extraTitles: Record<string, string> = {
+    '/dashboard/expenses':    'Expenses',
+    '/dashboard/shift/close': 'Close Shift',
+    '/dashboard/payment':     'Payment',
+    '/dashboard/receipt':     'Receipt',
+  }
+
   const getPageTitle = () => {
     if (pathname === '/dashboard') return null
     const item = allItems.find(i => i.path === pathname)
-    return item?.name || 'Uptimyzas Kitchen'
+    return item?.name || extraTitles[pathname || ''] || 'Uptimyzas Kitchen'
   }
 
   const pageTitle = getPageTitle()
@@ -67,7 +78,7 @@ export default function DashboardLayout({
 
   const handleLogout = () => {
     clearSession()
-    router.push('/auth/login')
+    router.replace('/auth/login')
   }
 
   return (

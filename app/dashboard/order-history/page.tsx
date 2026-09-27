@@ -40,7 +40,7 @@ export default function OrderHistoryPage() {
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
     } else {
       fetchStaffList()
       fetchOrders()

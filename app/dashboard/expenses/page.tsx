@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
+import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
 import { Plus, Trash2, X, Banknote, Smartphone } from 'lucide-react'
@@ -22,7 +23,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<any>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
-  const [activeShift, setActiveShift] = useState<any>(null)
+  const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -42,31 +43,32 @@ export default function ExpensesPage() {
     checkActiveShift()
   }, [router])
 
+  // Same shift lookup every other page uses (single `shifts` table,
+  // open = closed_at is null) — this page previously queried a
+  // `shift_sessions` table that nothing else in the app writes to,
+  // which is why it always reported no shift open.
   const checkActiveShift = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    const { data, error } = await supabase
-      .from('shift_sessions')
-      .select('*, shifts(*)')
-      .eq('shift_date', today)
-      .eq('status', 'open')
-      .single()
-
-    if (!data || error) {
-      toast('No active shift. Please open a shift first.', 'warning')
-      router.push('/dashboard')
-      return
+    try {
+      const shift = await getActiveShift()
+      if (!shift) {
+        toast('No active shift. Please open a shift first.', 'warning')
+        router.replace('/dashboard')
+        return
+      }
+      setActiveShift(shift)
+      fetchExpenses(shift.id)
+      setLoading(false)
+    } catch (err: any) {
+      console.error(err)
+      toast('Could not verify the active shift', 'error')
+      router.replace('/dashboard')
     }
-    setActiveShift(data)
-    fetchExpenses(data.shift_id)
-    setLoading(false)
   }
 
   const fetchExpenses = async (shiftId: string) => {
-    const today = new Date().toISOString().split('T')[0]
     const { data } = await supabase
       .from('expenses')
       .select('*')
-      .eq('shift_date', today)
       .eq('shift_id', shiftId)
       .order('created_at', { ascending: false })
 
@@ -75,12 +77,11 @@ export default function ExpensesPage() {
 
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!activeShift) return
     setSubmitting(true)
-    const today = new Date().toISOString().split('T')[0]
 
     const { error } = await supabase.from('expenses').insert({
-      shift_date: today,
-      shift_id: activeShift.shift_id,
+      shift_id: activeShift.id,
       staff_id: session.id,
       description: formData.description,
       amount: parseFloat(formData.amount),
@@ -90,33 +91,21 @@ export default function ExpensesPage() {
     if (error) {
       toast('Error adding expense: ' + error.message, 'error')
     } else {
-      await supabase.from('shift_activities').insert({
-        shift_date: today,
-        shift_id: activeShift.shift_id,
-        staff_id: session.id,
-        staff_name: `${session.first_name} ${session.surname}`,
-        staff_role: session.role,
-        action_type: 'ADD_EXPENSE',
-        action_details: {
-          description: formData.description,
-          amount: parseFloat(formData.amount),
-          payment_method: formData.payment_method,
-        },
-      })
       toast('Expense added', 'success')
-      fetchExpenses(activeShift.shift_id)
+      fetchExpenses(activeShift.id)
       closeModal()
     }
     setSubmitting(false)
   }
 
   const handleDelete = async (id: string) => {
+    if (!activeShift) return
     const { error } = await supabase.from('expenses').delete().eq('id', id)
     if (error) {
       toast('Error deleting expense', 'error')
     } else {
       toast('Expense deleted', 'info')
-      fetchExpenses(activeShift.shift_id)
+      fetchExpenses(activeShift.id)
     }
     setShowDeleteConfirm(null)
   }
@@ -141,12 +130,10 @@ export default function ExpensesPage() {
         {/* Summary card */}
         <div className="bg-primary rounded-[18px] p-5 text-white">
           <p className="t-small text-white/60 uppercase tracking-widest mb-1">
-            {activeShift?.shifts?.name} Shift
+            Active Shift
           </p>
           <p className="t-small text-white/50 mb-3">
-            {new Date().toLocaleDateString('en-NG', {
-              weekday: 'short', month: 'short', day: 'numeric'
-            })}
+            Started {activeShift && new Date(activeShift.opened_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
           </p>
           <p className="t-small text-white/70 mb-1">Total Expenses</p>
           <p className="text-[32px] font-semibold text-white leading-none">

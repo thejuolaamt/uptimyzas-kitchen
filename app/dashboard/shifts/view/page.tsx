@@ -49,7 +49,7 @@ function ShiftDetailContent() {
   const init = async () => {
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
       return
     }
     if (!shiftId) {

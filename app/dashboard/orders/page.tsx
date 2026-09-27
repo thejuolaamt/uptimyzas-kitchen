@@ -7,7 +7,7 @@ import { getSession } from '@/lib/auth'
 import { getActiveShift, ensureJoined, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
-import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, X, ChevronDown } from 'lucide-react'
+import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, Receipt, X, ChevronDown } from 'lucide-react'
 
 type MenuItem = {
   id: string
@@ -64,7 +64,7 @@ export default function OrdersPage() {
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
       return
     }
     loadData()
@@ -318,15 +318,24 @@ export default function OrdersPage() {
     <div className="min-h-screen bg-bg-subtle pb-32">
       {/* Header with Add Stock Button */}
       <div className="bg-white border-b sticky top-0 z-10">
-        <div className="px-4 py-3 flex justify-between items-center">
-          <span className="text-sm font-medium text-primary">Take an Order</span>
-          <button
-            onClick={() => setShowAddStock(true)}
-            className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm font-medium"
-          >
-            <PackagePlus size={16} />
-            Add Stock
-          </button>
+        <div className="px-4 py-3 flex justify-between items-center gap-2">
+          <span className="text-sm font-medium text-primary flex-shrink-0">Take an Order</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => router.push('/dashboard/expenses')}
+              className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm font-medium flex-shrink-0"
+            >
+              <Receipt size={16} />
+              Expense
+            </button>
+            <button
+              onClick={() => setShowAddStock(true)}
+              className="flex items-center gap-1.5 bg-primary/10 text-primary px-3 py-1.5 rounded-full text-sm font-medium flex-shrink-0"
+            >
+              <PackagePlus size={16} />
+              Add Stock
+            </button>
+          </div>
         </div>
 
         {/* Category Dropdown Filter */}

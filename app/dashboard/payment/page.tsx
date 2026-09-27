@@ -38,9 +38,14 @@ export default function PaymentPage() {
   const [transferAmount, setTransferAmount] = useState('')
   const [amountReceived, setAmountReceived] = useState('')
 
-  const navigate = useCallback((path: string) => {
+  // `replace: true` is used for every guard bounce and for the final
+  // handoff to the receipt — none of those should leave this page sitting
+  // in browser history. Payment is a mid-flow step: you should never be
+  // able to hit "back" into it once you've moved past it, whether that's
+  // because the order succeeded or because a guard kicked you out.
+  const navigate = useCallback((path: string, opts?: { replace?: boolean }) => {
     if (isRouterReady) {
-      router.push(path)
+      opts?.replace ? router.replace(path) : router.push(path)
     } else {
       window.location.href = path
     }
@@ -56,14 +61,14 @@ export default function PaymentPage() {
     const init = async () => {
       const userSession = getSession()
       if (!userSession) {
-        navigate('/auth/login')
+        navigate('/auth/login', { replace: true })
         return
       }
       setSession(userSession)
 
       const saved = localStorage.getItem('current_order_cart')
       if (!saved) {
-        navigate('/dashboard/orders')
+        navigate('/dashboard/orders', { replace: true })
         return
       }
       setCart(JSON.parse(saved))
@@ -76,14 +81,14 @@ export default function PaymentPage() {
         const shift = await getActiveShift()
         if (!shift) {
           toast('No shift is currently open', 'warning')
-          navigate('/dashboard/orders')
+          navigate('/dashboard/orders', { replace: true })
           return
         }
         setActiveShift(shift)
       } catch (err: any) {
         console.error(err)
         toast('Could not verify the active shift', 'error')
-        navigate('/dashboard/orders')
+        navigate('/dashboard/orders', { replace: true })
         return
       }
 
@@ -241,7 +246,7 @@ export default function PaymentPage() {
 
     setProcessing(false)
     setSuccess(true)
-    navigate('/dashboard/receipt')
+    navigate('/dashboard/receipt', { replace: true })
   }
 
   if (loading) {

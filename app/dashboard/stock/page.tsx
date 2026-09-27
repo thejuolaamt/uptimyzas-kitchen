@@ -34,7 +34,7 @@ export default function StockBoard() {
   useEffect(() => {
     const userSession = getSession()
     if (!userSession) {
-      router.push('/auth/login')
+      router.replace('/auth/login')
       return
     }
     fetchThresholds()

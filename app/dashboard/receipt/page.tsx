@@ -15,7 +15,7 @@ export default function ReceiptPage() {
     if (lastOrder) {
       setOrder(JSON.parse(lastOrder))
     } else {
-      router.push('/dashboard')
+      router.replace('/dashboard')
     }
   }, [router])
 
@@ -88,7 +88,9 @@ export default function ReceiptPage() {
           )}
         </div>
 
-        <button onClick={() => router.push('/dashboard/orders')} className="btn-primary w-full">
+        {/* replace, not push — once you leave this receipt for a new
+            order, you should never be able to "back" into it */}
+        <button onClick={() => router.replace('/dashboard/orders')} className="btn-primary w-full">
           New Order
         </button>
 

@@ -12,7 +12,7 @@ export default function HomePage() {
     if (session) {
       router.push('/dashboard')
     } else {
-      router.push('/auth/login')
+      router.replace('/auth/login')
     }
   }, [router])
 
