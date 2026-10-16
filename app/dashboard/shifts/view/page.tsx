@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
+import { analyzeShiftActivity, buildActivityLines } from '@/lib/activity'
 import { Copy, ChevronLeft } from 'lucide-react'
 
 type ShiftStockRow = {
@@ -139,7 +140,7 @@ function ShiftDetailContent() {
       // Revenue
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select('cash_amount, transfer_amount, total')
+        .select('cash_amount, transfer_amount, total, created_at, client_created_at')
         .eq('shift_id', shift.id)
       if (ordersError) throw new Error(ordersError.message)
 
@@ -202,6 +203,10 @@ function ShiftDetailContent() {
             .join('\n')
         : 'No discrepancies'
 
+      const activityBlock = buildActivityLines(
+        analyzeShiftActivity(orders || [], shift.opened_at, shift.closed_at)
+      )
+
       setSummary(`*Uptimyzas Kitchen — Shift Report*
 ${dateStr}
 ${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
@@ -227,6 +232,8 @@ Cash after expenses: ${cashAfterExpenses.toLocaleString()}
 
 *Stock Discrepancies*
 ${discrepancyLines}
+
+${activityBlock}
 
 *Net:* ${net.toLocaleString()}`)
 
