@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, ShoppingBag, Package, Clock,
@@ -9,8 +9,6 @@ import {
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
 import { getActiveShift } from '@/lib/shift'
-import { useToast } from '@/lib/toast'
-import { flushPendingOrders, pendingCount, ORDERS_QUEUED_EVENT } from '@/lib/orderQueue'
 
 export default function DashboardLayout({
   children,
@@ -20,28 +18,6 @@ export default function DashboardLayout({
   const pathname = usePathname()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
-  const toast = useToast()
-
-  // Background order sync: runs on load, when an order is queued, when the
-  // connection returns, and every 30 seconds as a safety net.
-  useEffect(() => {
-    const sync = async () => {
-      if (pendingCount() === 0) return
-      const result = await flushPendingOrders()
-      result.failed.forEach(f => toast(f.reason, 'error'))
-    }
-
-    sync()
-    window.addEventListener('online', sync)
-    window.addEventListener(ORDERS_QUEUED_EVENT, sync)
-    const timer = setInterval(sync, 30000)
-
-    return () => {
-      window.removeEventListener('online', sync)
-      window.removeEventListener(ORDERS_QUEUED_EVENT, sync)
-      clearInterval(timer)
-    }
-  }, [toast])
 
   const bottomNav = [
     { name: 'Home',   icon: LayoutDashboard, path: '/dashboard' },

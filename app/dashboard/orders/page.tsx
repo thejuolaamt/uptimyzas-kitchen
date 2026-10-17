@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { getActiveShift, ensureJoined, type ActiveShift } from '@/lib/shift'
-import { pendingQtyByItem } from '@/lib/orderQueue'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
 import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, Receipt, X, ChevronDown } from 'lucide-react'
@@ -111,10 +110,6 @@ export default function OrdersPage() {
         sessionStorage.setItem(joinFlagKey, '1')
       }
 
-      // Read unsynced quantities BEFORE fetching stock, so the worst case
-      // is briefly under-reporting stock, never over-reporting it.
-      const pending = pendingQtyByItem(shift.id)
-
       // Get current stock for this shift
       const { data: stock, error: stockError } = await supabase
         .from('shift_stock')
@@ -126,9 +121,7 @@ export default function OrdersPage() {
 
       setStockRows(stock || [])
       const stockMapData: Record<string, number> = {}
-      stock?.forEach(s => {
-        stockMapData[s.item_id] = Math.max(0, s.quantity - (pending[s.item_id] || 0))
-      })
+      stock?.forEach(s => { stockMapData[s.item_id] = s.quantity })
       setStockMap(stockMapData)
 
       // Load saved cart
@@ -225,8 +218,6 @@ export default function OrdersPage() {
         return
       }
 
-      const pending = pendingQtyByItem(activeShift.id)
-
       const { data: stock, error: refreshError } = await supabase
         .from('shift_stock')
         .select('*')
@@ -245,9 +236,7 @@ export default function OrdersPage() {
       if (stock) {
         setStockRows(stock)
         const stockMapData: Record<string, number> = {}
-        stock.forEach(s => {
-          stockMapData[s.item_id] = Math.max(0, s.quantity - (pending[s.item_id] || 0))
-        })
+        stock.forEach(s => { stockMapData[s.item_id] = s.quantity })
         setStockMap(stockMapData)
       }
 

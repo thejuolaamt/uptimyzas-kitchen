@@ -7,8 +7,6 @@ import { getSession } from '@/lib/auth'
 import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
-import { analyzeShiftActivity, buildActivityLines } from '@/lib/activity'
-import { flushPendingOrders, pendingCount } from '@/lib/orderQueue'
 import { ClipboardCheck, Copy, CheckCircle2 } from 'lucide-react'
 
 type ShiftStockRow = {
@@ -47,9 +45,6 @@ export default function ShiftClosePage() {
   const [revenueTransfer, setRevenueTransfer] = useState(0)
   const [revenueTotal, setRevenueTotal] = useState(0)
   const [orderCount, setOrderCount] = useState(0)
-  const [orderRows, setOrderRows] = useState<
-    { created_at: string; client_created_at: string | null }[]
-  >([])
   const [expenseRows, setExpenseRows] = useState<ExpenseRow[]>([])
   const [expenseTotal, setExpenseTotal] = useState(0)
 
@@ -75,9 +70,6 @@ export default function ShiftClosePage() {
         return
       }
       setActiveShift(shift)
-
-      // Push any orders recorded on this device before reading totals
-      await flushPendingOrders()
 
       // Stock logged for this shift
       const { data: stock, error: stockError } = await supabase
@@ -125,7 +117,7 @@ export default function ShiftClosePage() {
       // Revenue — orders placed during this shift
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select('cash_amount, transfer_amount, total, created_at, client_created_at')
+        .select('cash_amount, transfer_amount, total')
         .eq('shift_id', shift.id)
       if (ordersError) throw new Error(ordersError.message)
 
@@ -133,7 +125,6 @@ export default function ShiftClosePage() {
       setRevenueTransfer((orders || []).reduce((s, o) => s + Number(o.transfer_amount || 0), 0))
       setRevenueTotal((orders || []).reduce((s, o) => s + Number(o.total || 0), 0))
       setOrderCount((orders || []).length)
-      setOrderRows(orders || [])
 
       // Expenses — paid from cash during this shift
       const { data: expenses, error: expensesError } = await supabase
@@ -201,10 +192,6 @@ export default function ShiftClosePage() {
           .join('\n')
       : 'No discrepancies'
 
-    const activityBlock = buildActivityLines(
-      analyzeShiftActivity(orderRows, activeShift.opened_at, closedAt)
-    )
-
     return `*Uptimyzas Kitchen — Shift Report*
 ${dateStr}
 ${openTimeStr} – ${closeTimeStr} (${durationH}h ${durationM}m)
@@ -231,8 +218,6 @@ Cash after expenses: ${cashAfterExpenses.toLocaleString()}
 *Stock Discrepancies*
 ${discrepancyLines}
 
-${activityBlock}
-
 *Net:* ${net.toLocaleString()}`
   }
 
@@ -243,15 +228,6 @@ ${activityBlock}
     setSubmitting(true)
 
     try {
-      // Never close while orders from this device are still waiting to sync.
-      // Closing first would reject them and the sales would be lost.
-      if (pendingCount() > 0) {
-        await flushPendingOrders()
-        toast('Orders were still syncing. Reopen Close Shift to refresh the totals, then close.', 'warning')
-        setSubmitting(false)
-        return
-      }
-
       const discrepancies: Discrepancy[] = []
 
       const closeRows = stockRows.map(r => {
@@ -283,14 +259,17 @@ ${activityBlock}
         if (closeError) throw new Error(closeError.message)
       }
 
-      // Close time is set by the database, not the phone
-      const { data: closedRows, error: updateError } = await supabase.rpc('close_shift', {
-        p_shift_id: activeShift.id,
-        p_user_id: userSession.id,
-      })
+      const closedAtIso = new Date().toISOString()
+
+      const { data: closedShift, error: updateError } = await supabase
+        .from('shifts')
+        .update({ closed_at: closedAtIso, closed_by: userSession.id })
+        .eq('id', activeShift.id)
+        .is('closed_at', null)
+        .select()
+        .single()
 
       if (updateError) throw new Error(updateError.message)
-      const closedShift = Array.isArray(closedRows) ? closedRows[0] : closedRows
       if (!closedShift) throw new Error('This shift was already closed by someone else')
 
       setSummary(buildSummary(closedShift.closed_at, discrepancies))

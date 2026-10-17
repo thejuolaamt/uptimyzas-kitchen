@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 import { getActiveShift, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
-import { enqueueOrder } from '@/lib/orderQueue'
-import { Banknote, Smartphone, ArrowLeftRight } from 'lucide-react'
+import { Banknote, Smartphone, ArrowLeftRight, CheckCircle2 } from 'lucide-react'
 
 type CartItem = {
   id: string
@@ -27,10 +26,10 @@ const PAYMENT_METHODS = [
 export default function PaymentPage() {
   const router = useRouter()
   const toast  = useToast()
-  // Guards against a double tap creating two orders
-  const submittedRef = useRef(false)
   const [isRouterReady, setIsRouterReady] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
+  const [success, setSuccess] = useState(false)
   const [session, setSession] = useState<any>(null)
   const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -105,10 +104,8 @@ export default function PaymentPage() {
   const splitOk  = splitSum === total
   const splitDiff = total - splitSum
 
-  const handleConfirmOrder = () => {
-    if (submittedRef.current) return
-
-    if (!activeShift || !session) {
+  const handleConfirmOrder = async () => {
+    if (!activeShift) {
       toast('No active shift found', 'error')
       return
     }
@@ -125,7 +122,37 @@ export default function PaymentPage() {
       return
     }
 
-    submittedRef.current = true
+    setProcessing(true)
+
+    // Single fetch of current stock for every cart item — used both to
+    // validate sufficiency up front and, further down, to know which
+    // rows to decrement. No second query for the same data.
+    const { data: stockRows, error: stockFetchError } = await supabase
+      .from('shift_stock')
+      .select('id, item_id, quantity')
+      .eq('shift_id', activeShift.id)
+      .in('item_id', cart.map(i => i.id))
+
+    if (stockFetchError || !stockRows) {
+      toast('Could not verify stock before completing the order', 'error')
+      setProcessing(false)
+      return
+    }
+
+    const insufficient = cart.filter(item => {
+      const stockRow = stockRows.find(s => s.item_id === item.id)
+      return !stockRow || stockRow.quantity < item.quantity
+    })
+
+    if (insufficient.length > 0) {
+      insufficient.forEach(item => {
+        const stockRow = stockRows.find(s => s.item_id === item.id)
+        const available = stockRow?.quantity ?? 0
+        toast(`${item.name}: only ${available} left`, 'warning')
+      })
+      setProcessing(false)
+      return
+    }
 
     let cashAmt     = 0
     let transferAmt = 0
@@ -149,29 +176,66 @@ export default function PaymentPage() {
       subtotal:   i.price * i.quantity,
     }))
 
-    // The order id is created here so the receipt can show instantly and
-    // so a retry can never create a duplicate.
-    const orderId = crypto.randomUUID()
+    // Insert the order, tagged to the active shift
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        shift_id:        activeShift.id,
+        staff_id:        session.id,
+        items_json:      itemsJson,
+        subtotal:        total,
+        total,
+        payment_method:  paymentMethod,
+        cash_amount:     cashAmt,
+        transfer_amount: transferAmt,
+        change_given:    changeGiven,
+      })
+      .select()
+      .single()
 
-    // 1. Persist locally (synchronous, cannot fail on the network)
-    enqueueOrder({
-      id:            orderId,
-      shiftId:       activeShift.id,
-      staffId:       session.id,
-      items:         itemsJson,
-      total,
-      paymentMethod,
-      cash:          cashAmt,
-      transfer:      transferAmt,
-      change:        changeGiven,
-      clientTime:    new Date().toISOString(),
-      attempts:      0,
-    })
+    if (orderError) {
+      toast('Error saving order: ' + orderError.message, 'error')
+      setProcessing(false)
+      return
+    }
 
-    // 2. Hand the receipt what it needs
+    // Decrement every item concurrently — each one updates a different
+    // row, so there's no reason to wait for one before starting the next.
+    // Uses the stockRows already fetched above.
+    const results = await Promise.all(
+      cart.map(async (item) => {
+        const stockRow = stockRows.find(s => s.item_id === item.id)
+        if (!stockRow) {
+          return { item, ok: false, reason: 'Stock record not found' }
+        }
+
+        const { data: updatedStock, error: stockError } = await supabase
+          .rpc('decrement_stock', {
+            p_stock_id: stockRow.id,
+            p_quantity: item.quantity
+          })
+
+        if (stockError) {
+          console.error('Stock decrement error:', stockError)
+          return { item, ok: false, reason: stockError.message }
+        }
+        if (!updatedStock || updatedStock.length === 0) {
+          return { item, ok: false, reason: `Insufficient stock (only ${stockRow.quantity} left)` }
+        }
+        return { item, ok: true, reason: '' }
+      })
+    )
+
+    const failures = results.filter(r => !r.ok)
+    if (failures.length > 0) {
+      failures.forEach(f => toast(`${f.item.name}: ${f.reason}`, 'error'))
+      setProcessing(false)
+      return
+    }
+
     localStorage.removeItem('current_order_cart')
     localStorage.setItem('last_order', JSON.stringify({
-      orderId,
+      orderId:        orderData.id,
       items:          cart,
       total,
       paymentMethod,
@@ -180,8 +244,8 @@ export default function PaymentPage() {
       transferAmount: transferAmt,
     }))
 
-    // 3. Go straight to the receipt. Saving to the database happens in the
-    //    background (see the sync effect in app/dashboard/layout.tsx).
+    setProcessing(false)
+    setSuccess(true)
     navigate('/dashboard/receipt', { replace: true })
   }
 
@@ -319,9 +383,18 @@ export default function PaymentPage() {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-bg-subtle via-bg-subtle to-transparent pt-8 z-20">
         <button
           onClick={handleConfirmOrder}
+          disabled={processing || success}
           className="btn-primary w-full shadow-lg"
         >
-          Confirm & Complete Order
+          {success ? (
+            <>
+              <CheckCircle2 size={18} /> Order Placed!
+            </>
+          ) : processing ? (
+            <Spinner size="sm" />
+          ) : (
+            'Confirm & Complete Order'
+          )}
         </button>
       </div>
     </div>

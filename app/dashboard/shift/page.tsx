@@ -96,6 +96,7 @@ export default function ShiftGatePage() {
         .from('shifts')
         .insert({
           opened_by: userSession.id,
+          opened_at: new Date().toISOString(),
         })
         .select()
         .single()
