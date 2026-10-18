@@ -7,6 +7,7 @@ import { getSession } from '@/lib/auth'
 import { getActiveShift, ensureJoined, type ActiveShift } from '@/lib/shift'
 import { useToast } from '@/lib/toast'
 import Spinner from '@/components/Spinner'
+import { sortByAvailability } from '@/lib/menuSort'
 import { Plus, Minus, Trash2, ShoppingCart, PackagePlus, Receipt, X, ChevronDown } from 'lucide-react'
 
 type MenuItem = {
@@ -255,9 +256,10 @@ export default function OrdersPage() {
 
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0)
-  const filteredItems = selectedCategory === 'All'
+  const categoryItems = selectedCategory === 'All'
     ? menuItems
     : menuItems.filter(i => i.category === selectedCategory)
+  const filteredItems = sortByAvailability(categoryItems, stockMap)
 
   useEffect(() => {
     const handleClickOutside = () => {
