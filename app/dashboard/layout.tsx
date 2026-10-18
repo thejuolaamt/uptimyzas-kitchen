@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { clearSession } from '@/lib/auth'
 import { getActiveShift } from '@/lib/shift'
+import ConnectionStatus from '@/components/ConnectionStatus'
+import UpdateBanner, { UpdateButton } from '@/components/UpdateManager'
 
 export default function DashboardLayout({
   children,
@@ -85,6 +87,7 @@ export default function DashboardLayout({
     <div className="h-screen flex flex-col bg-bg-subtle overflow-hidden">
       {/* Top bar */}
       <div className="top-bar fixed top-0 left-0 right-0 z-20 bg-white flex-shrink-0">
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"><ConnectionStatus variant="dot" /></div>
         {pageTitle ? (
           <>
             <button
@@ -102,6 +105,14 @@ export default function DashboardLayout({
           <h1 className="t-brand text-primary">Uptimyzas Kitchen</h1>
         )}
       </div>
+
+      {/* Connection banner */}
+      <div className="fixed top-14 left-0 right-0 z-30 pointer-events-none">
+        <ConnectionStatus />
+      </div>
+
+      {/* Update available card */}
+      <UpdateBanner />
 
       {/* Desktop layout */}
       <div className="hidden md:flex flex-1 pt-14 overflow-hidden">
@@ -127,6 +138,7 @@ export default function DashboardLayout({
               })}
             </div>
             <div className="px-3 pb-6 border-t border-border pt-3">
+              <div className="mb-2"><UpdateButton /></div>
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-danger hover:bg-danger/5 transition-colors min-h-0"
@@ -227,6 +239,7 @@ export default function DashboardLayout({
           })}
         </div>
 
+        <div className="px-5 pt-1 pb-3"><UpdateButton /></div>
         <div className="px-5 pb-8 pt-1">
           <button
             onClick={handleLogout}
